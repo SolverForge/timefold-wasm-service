@@ -17,6 +17,7 @@ import ai.timefold.wasm.service.classgen.DomainObjectClassGenerator;
 import ai.timefold.wasm.service.classgen.WasmObject;
 import ai.timefold.wasm.service.dto.PlanningProblem;
 
+import com.dylibso.chicory.compiler.MachineFactoryCompiler;
 import com.dylibso.chicory.runtime.Instance;
 import com.dylibso.chicory.wasm.Parser;
 
@@ -69,7 +70,9 @@ public class SolverResource {
     }
 
     private Instance createWasmInstance(byte[] wasm) {
-        var out = Instance.builder(Parser.parse(wasm)).build();
+        var out = Instance.builder(Parser.parse(wasm))
+                .withMachineFactory(MachineFactoryCompiler::compile)
+                .build();
         return out;
     }
 

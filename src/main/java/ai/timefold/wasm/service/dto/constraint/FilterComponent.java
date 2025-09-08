@@ -6,25 +6,20 @@ import org.jspecify.annotations.NullMarked;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonValue;
 
 @NullMarked
-public final class FilterComponent implements StreamComponent {
-    WasmFunction filter;
+public record FilterComponent(@JsonValue WasmFunction filter) implements StreamComponent {
+    @JsonCreator
+    public FilterComponent {
+    }
+
+    public FilterComponent() {
+        this(null);
+    }
 
     @Override
     public String kind() {
         return "filter";
-    }
-
-    public FilterComponent() {}
-
-    @JsonCreator
-    public FilterComponent(WasmFunction filter) {
-        this.filter = filter;
-    }
-
-    @JsonIgnore
-    public WasmFunction getFilter() {
-        return filter;
     }
 }

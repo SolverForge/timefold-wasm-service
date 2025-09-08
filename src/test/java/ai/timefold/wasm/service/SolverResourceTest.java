@@ -19,6 +19,7 @@ import ai.timefold.wasm.service.dto.annotation.DomainProblemFactCollectionProper
 import ai.timefold.wasm.service.dto.annotation.DomainValueRangeProvider;
 import ai.timefold.wasm.service.dto.constraint.FilterComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
+import ai.timefold.wasm.service.dto.constraint.JoinComponent;
 
 import org.junit.jupiter.api.Test;
 
@@ -53,6 +54,7 @@ public class SolverResourceTest {
                                 "1",
                                 List.of(
                                       new ForEachComponent("Shift"),
+                                      new JoinComponent("Employee"),
                                       new FilterComponent(new WasmFunction("isEmployeeId0"))
                                 )
                         )
@@ -63,7 +65,7 @@ public class SolverResourceTest {
                         """
                         (module
                             (memory 1024)
-                            (func (export "isEmployeeId0") (param $shift i32) (result i32)
+                            (func (export "isEmployeeId0") (param $shift i32) (param $employee i32) (result i32)
                                 (i32.eq (local.get $shift) (i32.load) (i32.load) (i32.const 0))
                             )
                         )

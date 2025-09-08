@@ -49,6 +49,12 @@ public class WasmObject {
         map.put(memoryPointer, this);
     }
 
+    public WasmObject(Instance wasmInstance, int memoryPointer, int size) {
+        this.wasmInstance = wasmInstance;
+        this.memoryPointer = memoryPointer;
+        this.size = size;
+    }
+
     public int getMemoryPointer() {
         return memoryPointer;
     }
@@ -133,6 +139,6 @@ public class WasmObject {
 
     public static WasmObject ofExisting(Instance wasmInstance,
             int memoryPointer) {
-        return referenceMap.get(wasmInstance).get(memoryPointer);
+        return referenceMap.get(wasmInstance).computeIfAbsent(memoryPointer, ignored -> new WasmObject(wasmInstance, memoryPointer, 0));
     }
 }

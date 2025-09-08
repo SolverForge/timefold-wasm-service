@@ -9,7 +9,6 @@ import java.lang.constant.MethodTypeDesc;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.function.Predicate;
 
 import ai.timefold.solver.core.api.score.Score;
 import ai.timefold.solver.core.api.score.buildin.hardmediumsoft.HardMediumSoftScore;
@@ -18,13 +17,13 @@ import ai.timefold.solver.core.api.score.buildin.simple.SimpleScore;
 import ai.timefold.solver.core.api.score.stream.Constraint;
 import ai.timefold.solver.core.api.score.stream.ConstraintFactory;
 import ai.timefold.solver.core.api.score.stream.ConstraintProvider;
-import ai.timefold.solver.core.api.score.stream.uni.UniConstraintBuilder;
-import ai.timefold.solver.core.api.score.stream.uni.UniConstraintStream;
 import ai.timefold.wasm.service.dto.PlanningProblem;
 import ai.timefold.wasm.service.dto.WasmConstraint;
 import ai.timefold.wasm.service.dto.annotation.DomainPlanningScore;
+import ai.timefold.wasm.service.dto.constraint.DataStream;
 import ai.timefold.wasm.service.dto.constraint.FilterComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
+import ai.timefold.wasm.service.dto.constraint.JoinComponent;
 
 import static ai.timefold.wasm.service.classgen.DomainObjectClassGenerator.*;
 
@@ -38,10 +37,6 @@ public class ConstraintProviderClassGenerator {
 
     static final ClassDesc constraintProviderDesc = getDescriptor(ConstraintProvider.class);
     static final ClassDesc constraintFactoryDesc = getDescriptor(ConstraintFactory.class);
-
-    // TODO: Support multiple cardinality
-    static final ClassDesc streamDesc = getDescriptor(UniConstraintStream.class);
-    static final ClassDesc constraintBuilderDesc = getDescriptor(UniConstraintBuilder.class);
 
     static final ClassDesc constraintDesc = getDescriptor(Constraint.class);
 
@@ -99,7 +94,10 @@ public class ConstraintProviderClassGenerator {
                             codeBuilder.dup();
                             codeBuilder.loadConstant(index);
 
-                            generateConstraintBody(generatedClassDesc, classBuilder, codeBuilder, penaltyConstraint);
+                            var dataStream = generateConstraintBody(generatedClassDesc, classBuilder, codeBuilder, penaltyConstraint);
+                            var streamDesc = getDescriptor(dataStream.getConstraintStreamClass());
+                            var constraintBuilderDesc = getDescriptor(dataStream.getConstraintBuilderClass());
+
                             codeBuilder.loadConstant(penaltyConstraint.getWeight());
                             codeBuilder.invokestatic(scoreDesc, "parseScore", MethodTypeDesc.of(scoreDesc, stringDesc));
                             codeBuilder.invokeinterface(streamDesc, "penalize", MethodTypeDesc.of(constraintBuilderDesc, getDescriptor(
@@ -115,7 +113,10 @@ public class ConstraintProviderClassGenerator {
                             codeBuilder.dup();
                             codeBuilder.loadConstant(index);
 
-                            generateConstraintBody(generatedClassDesc, classBuilder, codeBuilder, rewardConstraint);
+                            var dataStream = generateConstraintBody(generatedClassDesc, classBuilder, codeBuilder, rewardConstraint);
+                            var streamDesc = getDescriptor(dataStream.getConstraintStreamClass());
+                            var constraintBuilderDesc = getDescriptor(dataStream.getConstraintBuilderClass());
+
                             codeBuilder.loadConstant(rewardConstraint.getWeight());
                             codeBuilder.invokestatic(scoreDesc, "parseScore", MethodTypeDesc.of(scoreDesc, stringDesc));
                             codeBuilder.invokeinterface(streamDesc, "reward", MethodTypeDesc.of(constraintBuilderDesc, getDescriptor(
@@ -137,20 +138,25 @@ public class ConstraintProviderClassGenerator {
         return (Class<? extends ConstraintProvider>) out;
     }
 
-    private void generateConstraintBody(ClassDesc generatedClass, ClassBuilder classBuilder, CodeBuilder codeBuilder, WasmConstraint wasmConstraint) {
+    private DataStream generateConstraintBody(ClassDesc generatedClass, ClassBuilder classBuilder, CodeBuilder codeBuilder, WasmConstraint wasmConstraint) {
+        DataStream dataStream = new DataStream();
         for (var steamComponent : wasmConstraint.getStreamComponentList()) {
+            var streamDesc = getDescriptor(dataStream.getConstraintStreamClass());
+            var predicateDesc = getDescriptor(dataStream.getPredicateClass());
+            var functionDesc = getDescriptor(dataStream.getFunctionClass());
+
             switch (steamComponent) {
                 case ForEachComponent forEachComponent -> {
                     codeBuilder.aload(1);
                     codeBuilder.loadConstant(getDescriptor(domainObjectClassGenerator.getClassForDomainClassName(
-                            forEachComponent.getClassName())));
+                            forEachComponent.className())));
                     codeBuilder.invokeinterface(constraintFactoryDesc, "forEach", MethodTypeDesc.of(streamDesc, getDescriptor(Class.class)));
                 }
                 case FilterComponent filterComponent -> {
-                    var predicate = filterComponent.getFilter().asPredicate(wasmInstance);
+                    var predicate = filterComponent.filter().asPredicate(dataStream.getTupleSize(), wasmInstance);
                     var predicateFieldName = "predicate" + functionCount;
                     functionCount++;
-                    classBuilder.withField(predicateFieldName, getDescriptor(Predicate.class), ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC);
+                    classBuilder.withField(predicateFieldName, predicateDesc, ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC);
                     classInitializerList.add(clazz -> {
                         try {
                             clazz.getField(predicateFieldName).set(null, predicate);
@@ -158,10 +164,18 @@ public class ConstraintProviderClassGenerator {
                             throw new RuntimeException(e);
                         }
                     });
-                    codeBuilder.getstatic(generatedClass, predicateFieldName, getDescriptor(Predicate.class));
-                    codeBuilder.invokeinterface(streamDesc, "filter", MethodTypeDesc.of(streamDesc, getDescriptor(Predicate.class)));
+                    codeBuilder.getstatic(generatedClass, predicateFieldName, predicateDesc);
+                    codeBuilder.invokeinterface(streamDesc, "filter", MethodTypeDesc.of(streamDesc, predicateDesc));
+                }
+                case JoinComponent(String className) -> {
+                    codeBuilder.loadConstant(getDescriptor(domainObjectClassGenerator.getClassForDomainClassName(className)));
+                    codeBuilder.invokeinterface(streamDesc, "join", MethodTypeDesc.of(
+                            getDescriptor(dataStream.getConstraintStreamClassWithExtras(1)), getDescriptor(Class.class)));
                 }
             }
+
+            steamComponent.applyToDataStream(dataStream);
         }
+        return dataStream;
     }
 }
