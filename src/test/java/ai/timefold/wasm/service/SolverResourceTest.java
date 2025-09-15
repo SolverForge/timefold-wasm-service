@@ -28,8 +28,11 @@ import ai.timefold.wasm.service.dto.annotation.DomainProblemFactCollectionProper
 import ai.timefold.wasm.service.dto.annotation.DomainValueRangeProvider;
 import ai.timefold.wasm.service.dto.constraint.FilterComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
+import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.JoinComponent;
 import ai.timefold.wasm.service.dto.constraint.PenalizeComponent;
+import ai.timefold.wasm.service.dto.constraint.RewardComponent;
+import ai.timefold.wasm.service.dto.constraint.groupby.CountAggregator;
 
 import org.junit.jupiter.api.Test;
 
@@ -47,10 +50,11 @@ public class SolverResourceTest {
     @Inject
     ObjectMapper objectMapper;
 
+    @Inject
+    SolverResource solverResource;
+
     @Test
     public void solveTest() throws JsonProcessingException {
-        var solverResource = new SolverResource();
-
         // Implemented these in Java since writing them in pure web assembly would be a pain
         var WORD_SIZE = Integer.SIZE;
         solverResource.setHostFunctionList(List.of(
@@ -269,7 +273,16 @@ public class SolverResourceTest {
                                       new JoinComponent("Employee"),
                                       new FilterComponent(new WasmFunction("isEmployeeId0")),
                                       new PenalizeComponent("1", null))
+                                ),
+                        "distinctIds", new WasmConstraint(
+                                List.of(
+                                        new ForEachComponent("Shift"),
+                                        new GroupByComponent(null, List.of(
+                                                new CountAggregator(true, new WasmFunction("getEmployee"))
+                                        )),
+                                        new RewardComponent("10", new WasmFunction("scaleByCount"))
                                 )
+                        )
                 ),
                 EnvironmentMode.FULL_ASSERT,
                 Base64.getEncoder().encodeToString(Wat2Wasm.parse(
@@ -339,6 +352,9 @@ public class SolverResourceTest {
                             (func (export "isEmployeeId0") (param $shift i32) (param $employee i32) (result i32)
                                 (i32.eq (local.get $shift) (i32.load) (i32.load) (i32.const 0))
                             )
+                            (func (export "scaleByCount") (param $count i32) (result i32)
+                                (local.get $count)
+                            )
                             (func (export "alloc") (param $size i32) (result i32)
                                 (local $out i32) (i32.const 0) (i32.load) (local.set $out) (i32.const 0) (i32.add (local.get $out) (local.get $size)) (i32.store) (local.get $out)
                             )
@@ -368,9 +384,9 @@ public class SolverResourceTest {
         var out = solverResource.solve(planningProblem);
         var solution = (Map) objectMapper.readerFor(Map.class).readValue(out.solution());
         assertThat(solution).containsKeys("employees", "shifts");
-        assertThat(solution).containsEntry("shifts", List.of(
-                Map.of("employee", Map.of("id", 1)), Map.of("employee", Map.of("id", 1))
+        assertThat(solution.get("shifts")).usingRecursiveComparison().ignoringCollectionOrder().isEqualTo(List.of(
+                Map.of("employee", Map.of("id", 0)), Map.of("employee", Map.of("id", 1))
         ));
-        assertThat(out.score()).isEqualTo(SimpleScore.of(0));
+        assertThat(out.score()).isEqualTo(SimpleScore.of(18));
     }
 }

@@ -1,13 +1,18 @@
 package ai.timefold.wasm.service.classgen;
 
+import java.util.Objects;
+import java.util.function.DoubleFunction;
+import java.util.function.Function;
 import java.util.function.IntFunction;
 
 import com.dylibso.chicory.runtime.Instance;
-import com.dylibso.chicory.runtime.Memory;
 
 public class WasmObject {
     public final Instance wasmInstance;
     public final int memoryPointer;
+
+    public static Function<Integer, WasmObject> WRAPPING_INT = WasmObject::wrappingInt;
+    public static Function<Double, WasmObject> WRAPPING_DOUBLE = WasmObject::wrappingDouble;
 
     public WasmObject() {
         // Required for cloning
@@ -53,6 +58,14 @@ public class WasmObject {
         return ofExisting(wasmInstance, (int) pointer);
     }
 
+    public static WasmObject wrappingInt(int value) {
+        return new WasmObject(null, value);
+    }
+
+    public static WasmObject wrappingDouble(double value) {
+        return new WasmObject(null, Float.floatToIntBits((float) value));
+    }
+
     public static WasmObject ofExisting(Instance wasmInstance,
             int memoryPointer) {
         return new WasmObject(wasmInstance, memoryPointer);
@@ -67,6 +80,19 @@ public class WasmObject {
     public static <Item_ extends WasmObject> Item_ ofExistingOrCreate(Instance wasmInstance,
             int memoryPointer, IntFunction<Item_> factory) {
         return factory.apply(memoryPointer);
+    }
+
+    @Override
+    public boolean equals(Object object) {
+        if (!(object instanceof WasmObject that)) {
+            return false;
+        }
+        return memoryPointer == that.memoryPointer;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(memoryPointer);
     }
 
     @Override

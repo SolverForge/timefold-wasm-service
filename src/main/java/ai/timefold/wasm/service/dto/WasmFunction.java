@@ -102,4 +102,9 @@ public class WasmFunction {
             default -> throw new IllegalArgumentException("Unexpected value: " + tupleSize);
         };
     }
+
+    @Override
+    public String toString() {
+        return wasmFunctionName;
+    }
 }

@@ -48,7 +48,7 @@ public class DomainObjectClassGenerator {
 
     static final ClassDesc booleanDesc = ClassDesc.ofDescriptor("Z");
     static final ClassDesc byteDesc = ClassDesc.ofDescriptor("B");
-    static final ClassDesc intDesc = ClassDesc.ofDescriptor("I");
+    public static final ClassDesc intDesc = ClassDesc.ofDescriptor("I");
     static final ClassDesc longDesc = ClassDesc.ofDescriptor("J");
     static final ClassDesc floatDesc = ClassDesc.ofDescriptor("F");
     static final ClassDesc doubleDesc = ClassDesc.ofDescriptor("D");
@@ -62,7 +62,7 @@ public class DomainObjectClassGenerator {
         return clazz.getCanonicalName().replace('.', '/');
     }
 
-    static ClassDesc getDescriptor(Class<?> clazz) {
+    public static ClassDesc getDescriptor(Class<?> clazz) {
         return ClassDesc.ofInternalName(getInternalName(clazz));
     }
 

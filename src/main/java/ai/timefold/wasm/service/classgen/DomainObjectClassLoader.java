@@ -1,5 +1,8 @@
 package ai.timefold.wasm.service.classgen;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -31,6 +34,18 @@ public class DomainObjectClassLoader extends ClassLoader {
         try {
             return loadClass(className);
         } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void dumpGeneratedClasses(Path generatedClassPath) {
+        try {
+            Files.createDirectories(generatedClassPath);
+            for (var entry : classNameToBytecode.entrySet()) {
+                Files.write(generatedClassPath.resolve(Path.of(entry.getKey() + ".class")),
+                            entry.getValue());
+            }
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }

@@ -1,16 +1,17 @@
 package ai.timefold.wasm.service;
 
 import java.lang.reflect.InvocationTargetException;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 
 import ai.timefold.solver.core.api.solver.SolverFactory;
 import ai.timefold.solver.core.config.solver.SolverConfig;
-import ai.timefold.solver.core.config.solver.termination.TerminationConfig;
 import ai.timefold.solver.core.impl.util.MutableReference;
 import ai.timefold.wasm.service.classgen.Allocator;
 import ai.timefold.wasm.service.classgen.ConstraintProviderClassGenerator;
@@ -20,8 +21,9 @@ import ai.timefold.wasm.service.classgen.WasmListAccessor;
 import ai.timefold.wasm.service.dto.PlanningProblem;
 import ai.timefold.wasm.service.dto.SolveResult;
 
+import org.eclipse.microprofile.config.inject.ConfigProperty;
+
 import com.dylibso.chicory.compiler.MachineFactoryCompiler;
-import com.dylibso.chicory.log.SystemLogger;
 import com.dylibso.chicory.runtime.ByteArrayMemory;
 import com.dylibso.chicory.runtime.HostFunction;
 import com.dylibso.chicory.runtime.ImportFunction;
@@ -43,6 +45,9 @@ public class SolverResource {
     public void setHostFunctionList(List<HostFunction> hostFunctionList) {
         this.hostFunctionList = hostFunctionList;
     }
+
+    @ConfigProperty(name = "generatedClassPath", defaultValue = "")
+    Optional<String> generatedClassPath;
 
     @POST
     public SolveResult<?> solve(PlanningProblem planningProblem) {
@@ -72,6 +77,9 @@ public class SolverResource {
 
             var constraintProviderClass = new ConstraintProviderClassGenerator()
                     .defineConstraintProviderClass(planningProblem);
+
+            generatedClassPath.ifPresent(s -> classLoader.dumpGeneratedClasses(Paths.get(s)));
+
             solverConfig.withConstraintProviderClass(constraintProviderClass);
 
             solverConfig.withTerminationConfig(planningProblem.terminationConfig());

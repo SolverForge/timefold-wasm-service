@@ -19,12 +19,16 @@ import ai.timefold.solver.core.api.function.TriPredicate;
 import ai.timefold.solver.core.api.score.stream.ConstraintBuilder;
 import ai.timefold.solver.core.api.score.stream.ConstraintStream;
 import ai.timefold.solver.core.api.score.stream.bi.BiConstraintBuilder;
+import ai.timefold.solver.core.api.score.stream.bi.BiConstraintCollector;
 import ai.timefold.solver.core.api.score.stream.bi.BiConstraintStream;
 import ai.timefold.solver.core.api.score.stream.quad.QuadConstraintBuilder;
+import ai.timefold.solver.core.api.score.stream.quad.QuadConstraintCollector;
 import ai.timefold.solver.core.api.score.stream.quad.QuadConstraintStream;
 import ai.timefold.solver.core.api.score.stream.tri.TriConstraintBuilder;
+import ai.timefold.solver.core.api.score.stream.tri.TriConstraintCollector;
 import ai.timefold.solver.core.api.score.stream.tri.TriConstraintStream;
 import ai.timefold.solver.core.api.score.stream.uni.UniConstraintBuilder;
+import ai.timefold.solver.core.api.score.stream.uni.UniConstraintCollector;
 import ai.timefold.solver.core.api.score.stream.uni.UniConstraintStream;
 
 public final class DataStream {
@@ -52,6 +56,16 @@ public final class DataStream {
         this.tupleSize = tupleSize;
     }
 
+    public String getSizeSuffix() {
+        return switch (tupleSize) {
+            case 1 -> "";
+            case 2 -> "Bi";
+            case 3 -> "Tri";
+            case 4 -> "Quad";
+            default -> throw new IllegalStateException("Impossible state: tupleSize (%d) must be between 1 and 4".formatted(tupleSize));
+        };
+    }
+
     public Class<? extends ConstraintStream> getConstraintStreamClass() {
         return getConstraintStreamClassWithExtras(0);
     }
@@ -72,6 +86,16 @@ public final class DataStream {
             case 2 -> BiConstraintBuilder.class;
             case 3 -> TriConstraintBuilder.class;
             case 4 -> QuadConstraintBuilder.class;
+            default -> throw new IllegalStateException("Impossible state: tupleSize (%d) must be between 1 and 4".formatted(tupleSize));
+        };
+    }
+
+    public Class<?> getConstraintCollectorClass() {
+        return switch (tupleSize) {
+            case 1 -> UniConstraintCollector.class;
+            case 2 -> BiConstraintCollector.class;
+            case 3 -> TriConstraintCollector.class;
+            case 4 -> QuadConstraintCollector.class;
             default -> throw new IllegalStateException("Impossible state: tupleSize (%d) must be between 1 and 4".formatted(tupleSize));
         };
     }

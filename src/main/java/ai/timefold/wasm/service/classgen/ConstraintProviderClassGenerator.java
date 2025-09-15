@@ -4,14 +4,13 @@ import java.lang.classfile.ClassBuilder;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.CodeBuilder;
 import java.lang.classfile.TypeKind;
+import java.lang.classfile.constantpool.ConstantPoolBuilder;
 import java.lang.constant.ClassDesc;
 import java.lang.constant.MethodTypeDesc;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
-import ai.timefold.solver.core.api.function.TriFunction;
 import ai.timefold.solver.core.api.score.Score;
 import ai.timefold.solver.core.api.score.buildin.hardmediumsoft.HardMediumSoftScore;
 import ai.timefold.solver.core.api.score.buildin.hardsoft.HardSoftScore;
@@ -27,17 +26,17 @@ import ai.timefold.wasm.service.dto.annotation.DomainPlanningScore;
 import ai.timefold.wasm.service.dto.constraint.DataStream;
 import ai.timefold.wasm.service.dto.constraint.FilterComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
+import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.JoinComponent;
 import ai.timefold.wasm.service.dto.constraint.PenalizeComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
 
 import static ai.timefold.wasm.service.classgen.DomainObjectClassGenerator.*;
 
-import com.dylibso.chicory.runtime.Instance;
-
 public class ConstraintProviderClassGenerator {
     private int functionCount = 0;
-    private List<Consumer<Class<?>>> classInitializerList = new ArrayList<>();
+    private final List<Consumer<Class<?>>> classInitializerList = new ArrayList<>();
+    private final ConstantPoolBuilder constantPool;
 
     static final ClassDesc constraintProviderDesc = getDescriptor(ConstraintProvider.class);
     static final ClassDesc constraintFactoryDesc = getDescriptor(ConstraintFactory.class);
@@ -45,6 +44,7 @@ public class ConstraintProviderClassGenerator {
     static final ClassDesc constraintDesc = getDescriptor(Constraint.class);
 
     public ConstraintProviderClassGenerator() {
+        constantPool = ConstantPoolBuilder.of();
     }
 
     private static Class<?> getScoreType(PlanningProblem planningProblem) {
@@ -74,7 +74,7 @@ public class ConstraintProviderClassGenerator {
         var scoreType = getScoreType(planningProblem);
         var scoreDesc = getDescriptor(scoreType);
         var generatedClassDesc = ClassDesc.of(constraintProviderClassName);
-        var classBytes = classFile.build(generatedClassDesc, classBuilder -> {
+        var classBytes = classFile.build(constantPool.classEntry(generatedClassDesc), constantPool, classBuilder -> {
             classBuilder.withInterfaceSymbols(constraintProviderDesc);
 
             // Constructor
@@ -91,8 +91,8 @@ public class ConstraintProviderClassGenerator {
                         codeBuilder.loadConstant(planningProblem.getConstraintList().size());
                         codeBuilder.anewarray(getDescriptor(Constraint.class));
                         var index = 0;
+                        codeBuilder.dup();
                         for (var constraint : planningProblem.getConstraintList()) {
-                            codeBuilder.dup();
                             codeBuilder.dup();
                             codeBuilder.loadConstant(index);
 
@@ -116,48 +116,23 @@ public class ConstraintProviderClassGenerator {
         return (Class<? extends ConstraintProvider>) out;
     }
 
-    private enum FunctionType {
-        PREDICATE(WasmFunction::asPredicate),
-        MAPPER(WasmFunction::asFunction),
-        TO_INT(WasmFunction::asToIntFunction);
-
-        private final TriFunction<WasmFunction, Integer, Instance, Object> functionConvertor;
-
-        FunctionType(TriFunction<WasmFunction, Integer, Instance, Object> functionConvertor) {
-            this.functionConvertor = functionConvertor;
-        }
-
-        public ClassDesc getClassDescriptor(DataStream dataStream, int extras) {
-            return getDescriptor(switch (this) {
-                case PREDICATE -> dataStream.getPredicateClassWithExtras(extras);
-                case MAPPER -> dataStream.getFunctionClassWithExtras(extras);
-                case TO_INT -> dataStream.getToIntFunctionClassWithExtras(extras);
-            });
-        }
-
-        public Object getFunction(int size, WasmFunction wasmFunction) {
-            return functionConvertor.apply(wasmFunction, size, SolverResource.INSTANCE.get());
-        }
+    public ConstantPoolBuilder getConstantPool() {
+        return constantPool;
     }
 
-    record DataStreamInfo(ClassBuilder classBuilder,
-                          CodeBuilder codeBuilder,
-                          DataStream dataStream,
-                          ClassDesc generatedClassDesc) {}
-
-    private ClassDesc loadFunction(DataStreamInfo dataStreamInfo, FunctionType functionType,
+    public ClassDesc loadFunction(DataStreamInfo dataStreamInfo, FunctionType functionType,
             WasmFunction function) {
         return loadFunction(dataStreamInfo, 0, functionType, function);
     }
 
-    private ClassDesc loadFunction(DataStreamInfo dataStreamInfo, int extras, FunctionType functionType,
+    public ClassDesc loadFunction(DataStreamInfo dataStreamInfo, int extras, FunctionType functionType,
             WasmFunction function) {
-        var argCount = dataStreamInfo.dataStream.getTupleSize() + extras;
+        var argCount = dataStreamInfo.dataStream().getTupleSize() + extras;
         var functionInstance = functionType.getFunction(argCount, function);
         var functionFieldName = "$function" + functionCount;
-        var functionClassDesc = functionType.getClassDescriptor(dataStreamInfo.dataStream, extras);
+        var functionClassDesc = functionType.getClassDescriptor(dataStreamInfo.dataStream(), extras);
         functionCount++;
-        dataStreamInfo.classBuilder.withField(functionFieldName, functionClassDesc, ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC);
+        dataStreamInfo.classBuilder().withField(functionFieldName, functionClassDesc, ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC);
         classInitializerList.add(clazz -> {
             try {
                 clazz.getField(functionFieldName).set(null, functionInstance);
@@ -167,7 +142,7 @@ public class ConstraintProviderClassGenerator {
                 throw new RuntimeException("Type mismatch: expected %s but got %s".formatted(functionClassDesc, functionInstance.getClass().getInterfaces()[0]), e);
             }
         });
-        dataStreamInfo.codeBuilder.getstatic(dataStreamInfo.generatedClassDesc, functionFieldName, functionClassDesc);
+        dataStreamInfo.codeBuilder().getstatic(dataStreamInfo.generatedClassDesc(), functionFieldName, functionClassDesc);
         return functionClassDesc;
     }
 
@@ -177,7 +152,7 @@ public class ConstraintProviderClassGenerator {
             CodeBuilder codeBuilder,
             WasmConstraint wasmConstraint) {
         DataStream dataStream = new DataStream();
-        var dataStreamInfo = new DataStreamInfo(classBuilder, codeBuilder, dataStream, generatedClass);
+        var dataStreamInfo = new DataStreamInfo(this, classBuilder, codeBuilder, dataStream, generatedClass);
         var classLoader = SolverResource.GENERATED_CLASS_LOADER.get();
         for (var steamComponent : wasmConstraint.getStreamComponentList()) {
             var streamDesc = getDescriptor(dataStream.getConstraintStreamClass());
@@ -197,6 +172,22 @@ public class ConstraintProviderClassGenerator {
                     codeBuilder.loadConstant(getDescriptor(classLoader.getClassForDomainClassName(className)));
                     codeBuilder.invokeinterface(streamDesc, "join", MethodTypeDesc.of(
                             getDescriptor(dataStream.getConstraintStreamClassWithExtras(1)), getDescriptor(Class.class)));
+                }
+                case GroupByComponent groupByComponent -> {
+                    var keyFunctionDesc = getDescriptor(dataStream.getFunctionClass());
+                    var constraintCollectorDesc = getDescriptor(dataStream.getConstraintCollectorClass());
+                    var methodParameterDescriptors = new ClassDesc[groupByComponent.getKeys().size() + groupByComponent.getAggregators().size()];
+                    for (int i = 0; i < groupByComponent.getKeys().size(); i++) {
+                        methodParameterDescriptors[i] = keyFunctionDesc;
+                        loadFunction(dataStreamInfo, FunctionType.MAPPER, groupByComponent.getKeys().get(i));
+                    }
+                    for (int i = 0; i < groupByComponent.getAggregators().size(); i++) {
+                        methodParameterDescriptors[i + groupByComponent.getKeys().size()] = constraintCollectorDesc;
+                        groupByComponent.getAggregators().get(i).loadAggregatorInstance(dataStreamInfo);
+                    }
+                    var methodReturnDesc = getDescriptor(dataStream.getConstraintStreamClassWithExtras(methodParameterDescriptors.length - dataStream.getTupleSize()));
+
+                    codeBuilder.invokeinterface(streamDesc, "groupBy", MethodTypeDesc.of(methodReturnDesc, methodParameterDescriptors));
                 }
                 case PenalizeComponent penalizeComponent -> {
                     codeBuilder.loadConstant(penalizeComponent.weight());
