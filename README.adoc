@@ -2,6 +2,10 @@
 
 A Quarkus REST service that can solve and analyze arbitrary planning problems using WASM code.
 
+== Requirements
+
+- JDK 24 or above
+- Maven
 
 == Request format
 
@@ -167,3 +171,15 @@ The `/solve` endpoint runs Timefold Solver and returns the optimized solution.
 === `/analyze`
 
 The `/analyze` endpoint returns the `ScoreAnalysis` of the provided solution.
+
+== Building
+
+```bash
+mvn clean install
+```
+
+== Running
+
+```bash
+java -jar target/quarkus-app/quarkus-run.jar
+```
