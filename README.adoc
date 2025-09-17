@@ -1,0 +1,169 @@
+= Timefold WASM Service
+
+A Quarkus REST service that can solve and analyze arbitrary planning problems using WASM code.
+
+
+== Request format
+
+A planning problem is structured as follows:
+
+```json
+{
+    "domain": "DomainMap",
+    "constraints": "ConstraintMap",
+    "wasm": "Base64String",
+    "allocator": "ExportedWasmFunction (int) -> int",
+    "deallocator": "ExportedWasmFunction (int) -> void",
+    "solutionDeallocator": "Optional[ExportedWasmFunction (int) -> void]",
+    "listAccessor": "ListAccessor",
+    "termination": "Optional[TerminationConfig]",
+    "environmentMode": "Optional[EnvironmentMode]",
+    "problem": "String"
+}
+```
+
+The domain is a map describing the facts, entities and solution classes of the problem.
+The keys of the map are the domain classes name, which may be referenced in type definitions and constraints. The values of the map describe the planning annotations on the class and how to access them from a pointer:
+
+```json
+{
+   "fields": "FieldMap",
+   "mapper": "Optional[SerializerAndDeserializer]"
+}
+```
+
+
+The "FieldMap" is a map where keys are field names, and values is an object describing the field's type, annotations on the field, and how to get and set its value:
+
+```json
+{
+    "type": "String",
+    "annotations": "Optional[List[PlanningAnnotation]]",
+    "accessor": "GetterAndSetter"
+}
+```
+
+"PlanningAnnotation" is an object that describe one of Timefold Solver's annotation.
+
+"GetterAndSetter" is an object describing exported WASM functions for getting and setting a value:
+
+```json
+{
+    "getter": "ExportedWasmFunction (int) -> int",
+    "setter": "ExportedWasmFunction (int, int) -> void"
+}
+```
+
+The "SerializerAndDeserializer" is an object that tells the solver which exported WASM functions can be used to create an instance from a string, and how to convert an instance to a string:
+
+```json
+{
+    "fromString": "ExportedWasmFunction (int) -> int",
+    "toString": "ExportedWasmFunction (int) -> (int)"
+}
+```
+
+"ConstraintMap" is a map describing your constraints.
+The keys are the constraint names, and the values are lists of stream component objects that map to the Constraint Stream API.
+
+"ListAccessor" is an object describing how to access and create lists:
+
+```json
+{
+    "new": "ExportedWasmFunction () -> int",
+    "get": "ExportedWasmFunction (int, int) -> int",
+    "set": "ExportedWasmFunction (int, int, int) -> void",
+    "length": "ExportedWasmFunction (int) -> int",
+    "append": "ExportedWasmFunction (int, int) -> void",
+    "insert": "ExportedWasmFunction (int, int, int) -> void",
+    "remove": "ExportedWasmFunction (int, int) -> void"
+}
+```
+
+"wasm" is a base-64 encoded WASM bytes.
+
+An example planning problem request look like this:
+
+```json
+{
+   "domain": {
+       "Employee": {
+           "fields": {"name": {"type": "String"}}
+       },
+       "Shift": {
+           "fields": {
+               "start": {"type": "int"},
+               "end": {"type": "int"},
+               "employee": {
+                   "type": "Employee",
+                   "accessor": {"getter": "getEmployee", "setter": "setEmployee"},
+                   "annotations": [{"annotation": "PlanningVariable", "allowsUnassigned": true}]
+               }
+           }
+       },
+       "Schedule": {
+           "fields": {
+               "employees": {
+                   "type": "Employee[]",
+                   "accessor": {"getter": "getEmployees", "setter": "setEmployees"},
+                   "annotations": [
+                       {"annotation": "ProblemFactCollectionProperty"},
+                       {"annotation": "ValueRangeProvider"}
+                   ]
+               },
+               "shifts": {
+                   "type": "Shift[]",
+                   "accessor": {"getter": "getShifts", "setter": "setShifts"},
+                   "annotations": [
+                       {"annotation": "PlanningEntityCollectionProperty"}
+                   ]
+               },
+               "score": {
+                   "type": "SimpleScore",
+                   "annotations": [
+                       {"annotation": "PlanningScore"}
+                   ]
+               }
+           },
+           "mapper": {"fromString": "strToSchedule", "toString": "scheduleToStr"}
+       }
+   },
+   "constraints": {
+       "penalize unassigned": [
+           {"kind": "each", "className": "Shift"},
+           {"kind": "filter", "functionName": "unassigned"},
+           {"kind": "penalize", "weight": "1"}
+       ],
+       "reward requested time off": [
+           {"kind": "each", "className": "Shift"},
+           {"kind": "filter", "functionName": "requestedTimeOff"},
+           {"kind": "reward", "weight": "2"}
+       ]
+   },
+   "wasm": "...",
+   "allocator": "alloc",
+   "deallocator": "dealloc",
+   "listAccessor": {
+       "new": "newList",
+       "get": "getItem",
+       "set": "setItem",
+       "length": "size",
+       "append": "append",
+       "insert": "insert",
+       "remove": "remove"
+   },
+   "problem": "{\"employees\":[...], ...}",
+   "environmentMode": "FULL_ASSERT",
+   "termination": {"spentLimit": "1s"}
+}
+```
+
+== Available endpoints
+
+=== `/solve`
+
+The `/solve` endpoint runs Timefold Solver and returns the optimized solution.
+
+=== `/analyze`
+
+The `/analyze` endpoint returns the `ScoreAnalysis` of the provided solution.
