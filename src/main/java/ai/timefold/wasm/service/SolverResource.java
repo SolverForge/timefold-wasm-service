@@ -6,11 +6,17 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 
+import ai.timefold.solver.core.api.score.analysis.ScoreAnalysis;
+import ai.timefold.solver.core.api.solver.SolutionManager;
 import ai.timefold.solver.core.api.solver.SolverFactory;
+import ai.timefold.solver.core.api.solver.SolverManager;
 import ai.timefold.solver.core.config.solver.SolverConfig;
 import ai.timefold.solver.core.impl.util.MutableReference;
 import ai.timefold.wasm.service.classgen.Allocator;
@@ -33,7 +39,7 @@ import com.dylibso.chicory.wasi.WasiOptions;
 import com.dylibso.chicory.wasi.WasiPreview1;
 import com.dylibso.chicory.wasm.Parser;
 
-@Path("/solver")
+@Path("/")
 public class SolverResource {
     public static ThreadLocal<Instance> INSTANCE = new ThreadLocal<>();
     public static ThreadLocal<WasmListAccessor> LIST_ACCESSOR = new ThreadLocal<>();
@@ -48,63 +54,6 @@ public class SolverResource {
 
     @ConfigProperty(name = "generatedClassPath", defaultValue = "")
     Optional<String> generatedClassPath;
-
-    @POST
-    public SolveResult<?> solve(PlanningProblem planningProblem) {
-        var solverConfig = new SolverConfig();
-
-        var domainObjectClassGenerator = new DomainObjectClassGenerator();
-        var wasmInstance = createWasmInstance(planningProblem.getWasm());
-
-        try {
-            var classLoader = new DomainObjectClassLoader();
-            GENERATED_CLASS_LOADER.set(classLoader);
-            INSTANCE.set(wasmInstance);
-            LIST_ACCESSOR.set(new WasmListAccessor(wasmInstance, planningProblem.getListAccessor()));
-            ALLOCATOR.set(new Allocator(wasmInstance, planningProblem.getAllocator(), planningProblem.getDeallocator(),
-                    planningProblem.getSolutionDeallocator()));
-
-            domainObjectClassGenerator.prepareClassesForPlanningProblem(planningProblem);
-
-            var solutionClass = classLoader.getClassForDomainClassName(planningProblem.getSolutionClass());
-            var entityClassList = new ArrayList<Class<?>>(planningProblem.getEntityClassList().size());
-            for (var entityClass : planningProblem.getEntityClassList()) {
-                entityClassList.add(classLoader.getClassForDomainClassName(entityClass));
-            }
-
-            solverConfig.setSolutionClass(solutionClass);
-            solverConfig.setEntityClassList(entityClassList);
-            solverConfig.setEnvironmentMode(planningProblem.getEnvironmentMode());
-
-            var constraintProviderClass = new ConstraintProviderClassGenerator()
-                    .defineConstraintProviderClass(planningProblem);
-
-            generatedClassPath.ifPresent(s -> classLoader.dumpGeneratedClasses(Paths.get(s)));
-
-            solverConfig.withConstraintProviderClass(constraintProviderClass);
-
-            solverConfig.withTerminationConfig(planningProblem.terminationConfig());
-
-            var solverFactory = SolverFactory.create(solverConfig);
-            var solver = solverFactory.buildSolver();
-            var solverInput = convertPlanningProblem(wasmInstance, classLoader, planningProblem);
-
-            // Copy the solution into a map; we don't know enough from the WASM
-            // to create an accurate planning clone that cannot be corrupted by
-            // constraints/setters
-            MutableReference<SolveResult<?>> bestSolutionRef = new MutableReference<>(
-                    new SolveResult<>(planningProblem.getProblem(), null));
-            solver.addEventListener(event -> {
-                bestSolutionRef.setValue(new SolveResult<>(event.getNewBestSolution().toString(), event.getNewBestScore()));
-            });
-
-            solver.solve(solverInput);
-            return bestSolutionRef.getValue();
-        } finally {
-            GENERATED_CLASS_LOADER.remove();
-            LIST_ACCESSOR.remove();
-        }
-    }
 
     private Instance createWasmInstance(byte[] wasm) {
         var instanceBuilder = Instance.builder(Parser.parse(wasm))
@@ -141,5 +90,81 @@ public class SolverResource {
         } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private <T> T usingGeneratedSolverAndPlanningProblem(PlanningProblem planningProblem, BiFunction<Object, SolverFactory<Object>, T> resultFunction) {
+        var solverConfig = new SolverConfig();
+
+        var domainObjectClassGenerator = new DomainObjectClassGenerator();
+        var wasmInstance = createWasmInstance(planningProblem.getWasm());
+
+        try {
+            var classLoader = new DomainObjectClassLoader();
+            GENERATED_CLASS_LOADER.set(classLoader);
+            INSTANCE.set(wasmInstance);
+            LIST_ACCESSOR.set(new WasmListAccessor(wasmInstance, planningProblem.getListAccessor()));
+            ALLOCATOR.set(new Allocator(wasmInstance, planningProblem.getAllocator(), planningProblem.getDeallocator(),
+                    planningProblem.getSolutionDeallocator()));
+
+            domainObjectClassGenerator.prepareClassesForPlanningProblem(planningProblem);
+
+            var solutionClass = classLoader.getClassForDomainClassName(planningProblem.getSolutionClass());
+            var entityClassList = new ArrayList<Class<?>>(planningProblem.getEntityClassList().size());
+            for (var entityClass : planningProblem.getEntityClassList()) {
+                entityClassList.add(classLoader.getClassForDomainClassName(entityClass));
+            }
+
+            solverConfig.setSolutionClass(solutionClass);
+            solverConfig.setEntityClassList(entityClassList);
+            solverConfig.setEnvironmentMode(planningProblem.getEnvironmentMode());
+
+            var constraintProviderClass = new ConstraintProviderClassGenerator()
+                    .defineConstraintProviderClass(planningProblem);
+
+            generatedClassPath.ifPresent(s -> classLoader.dumpGeneratedClasses(Paths.get(s)));
+
+            solverConfig.withConstraintProviderClass(constraintProviderClass);
+
+            solverConfig.withTerminationConfig(planningProblem.terminationConfig());
+
+            var solverFactory = SolverFactory.create(solverConfig);
+            var solverInput = convertPlanningProblem(wasmInstance, classLoader, planningProblem);
+
+            return resultFunction.apply(solverInput, solverFactory);
+        } finally {
+            GENERATED_CLASS_LOADER.remove();
+            LIST_ACCESSOR.remove();
+            INSTANCE.remove();
+            ALLOCATOR.remove();
+        }
+    }
+
+    @POST
+    @Path("solve")
+    public SolveResult<?> solve(PlanningProblem planningProblem) {
+        return usingGeneratedSolverAndPlanningProblem(planningProblem, (solverInput, solverFactory) -> {
+            var solver = solverFactory.buildSolver();
+
+            // Copy the solution into a map; we don't know enough from the WASM
+            // to create an accurate planning clone that cannot be corrupted by
+            // constraints/setters
+            MutableReference<SolveResult<?>> bestSolutionRef = new MutableReference<>(
+                    new SolveResult<>(planningProblem.getProblem(), null));
+            solver.addEventListener(event -> {
+                bestSolutionRef.setValue(new SolveResult<>(event.getNewBestSolution().toString(), event.getNewBestScore()));
+            });
+
+            solver.solve(solverInput);
+            return bestSolutionRef.getValue();
+        });
+    }
+
+    @POST
+    @Path("analyze")
+    public ScoreAnalysis<?> analyze(PlanningProblem planningProblem) {
+        return usingGeneratedSolverAndPlanningProblem(planningProblem, (solverInput, solverFactory) -> {
+            var solutionManager = SolutionManager.create(SolverManager.create(solverFactory));
+            return solutionManager.analyze(solverInput);
+        });
     }
 }

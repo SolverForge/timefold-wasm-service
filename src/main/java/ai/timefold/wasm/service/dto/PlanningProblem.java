@@ -120,8 +120,21 @@ public class PlanningProblem {
         return constraintList;
     }
 
+    public void setConstraints(Map<String, WasmConstraint> constraintMap) {
+        this.constraintList = constraintMap.entrySet()
+                .stream()
+                .map(entry -> {
+                    entry.getValue().name = entry.getKey();
+                    return entry.getValue();
+                }).toList();
+    }
+
     public String getProblem() {
         return problem;
+    }
+
+    public void setProblem(String problem) {
+        this.problem = problem;
     }
 
     public byte[] getWasm() {
