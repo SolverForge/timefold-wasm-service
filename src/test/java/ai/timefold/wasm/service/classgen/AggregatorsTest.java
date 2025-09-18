@@ -21,6 +21,7 @@ import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
 import ai.timefold.wasm.service.dto.constraint.groupby.AverageAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.CountAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.LoadBalanceAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.MaxAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.MinAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.SumAggregator;
@@ -247,5 +248,39 @@ public class AggregatorsTest {
         analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("max").score())
                 .isEqualTo(SimpleScore.of(3));
+    }
+
+    @Test
+    public void testLoadBalance() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("loadBalance", new WasmConstraint(List.of(
+                        new ForEachComponent("Shift"),
+                        new GroupByComponent(Collections.emptyList(), List.of(new LoadBalanceAggregator(new WasmFunction("getEmployee")))),
+                        new RewardComponent("1", new WasmFunction("scaleByFloat"))
+                )))
+        );
+
+        var s1 = new Shift(e1);
+        var s2 = new Shift(e2);
+        var s3 = new Shift(e3);
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                Collections.emptyList(), List.of(s1, s2, s3)
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("loadBalance").score())
+                .isEqualTo(SimpleScore.of(0));
+
+        s1 = new Shift(e1);
+        s2 = new Shift(e1);
+        s3 = new Shift(e3);
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                Collections.emptyList(), List.of(s1, s2, s3)
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("loadBalance").score())
+                .isEqualTo(SimpleScore.of(7));
     }
 }
