@@ -1,33 +1,73 @@
 package ai.timefold.wasm.service.classgen;
 
+import java.util.Comparator;
 import java.util.Objects;
-import java.util.function.DoubleFunction;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.IntFunction;
+import java.util.function.ToIntFunction;
 
 import com.dylibso.chicory.runtime.Instance;
 
-public class WasmObject {
+public class WasmObject implements Comparable<WasmObject> {
     public final Instance wasmInstance;
     public final int memoryPointer;
+    private final Comparator<Integer> comparator;
+    private final ToIntFunction<Integer> hasher;
+    private final BiPredicate<Integer, Integer> equalRelation;
 
     public static Function<Integer, WasmObject> WRAPPING_INT = WasmObject::wrappingInt;
     public static Function<Double, WasmObject> WRAPPING_DOUBLE = WasmObject::wrappingDouble;
+
+    private static final BiPredicate<Integer, Integer> DEFAULT_EQUALS = Integer::equals;
+    private static final ToIntFunction<Integer> DEFAULT_HASH = Object::hashCode;
+    private static final Comparator<Integer> DEFAULT_COMPARATOR = (a, b) -> {
+        throw new UnsupportedOperationException();
+    };
 
     public WasmObject() {
         // Required for cloning
         memoryPointer = 0;
         wasmInstance = null;
+        equalRelation = DEFAULT_EQUALS;
+        hasher = DEFAULT_HASH;
+        comparator = DEFAULT_COMPARATOR;
     }
 
     public WasmObject(Allocator allocator, Instance wasmInstance, int size) {
         this.wasmInstance = wasmInstance;
         memoryPointer = allocator.allocate(size);
+        equalRelation = DEFAULT_EQUALS;
+        hasher = DEFAULT_HASH;
+        comparator = DEFAULT_COMPARATOR;
     }
 
     public WasmObject(Instance wasmInstance, int memoryPointer) {
         this.wasmInstance = wasmInstance;
         this.memoryPointer = memoryPointer;
+        equalRelation = DEFAULT_EQUALS;
+        hasher = DEFAULT_HASH;
+        comparator = DEFAULT_COMPARATOR;
+    }
+
+    public WasmObject(Instance wasmInstance, int memoryPointer,
+            BiPredicate<Integer, Integer> equalRelation,
+            ToIntFunction<Integer> hasher,
+            Comparator<Integer> comparator) {
+        this.wasmInstance = wasmInstance;
+        this.memoryPointer = memoryPointer;
+        this.equalRelation = Objects.requireNonNullElse(equalRelation, DEFAULT_EQUALS);
+        this.hasher = Objects.requireNonNullElse(hasher, DEFAULT_HASH);
+        this.comparator = Objects.requireNonNullElse(comparator, DEFAULT_COMPARATOR);
+    }
+
+    public WasmObject(Instance wasmInstance, int memoryPointer,
+            Comparator<Integer> comparator) {
+        this.wasmInstance = wasmInstance;
+        this.memoryPointer = memoryPointer;
+        this.equalRelation = (a, b) -> a.compareTo(b) == 0;
+        this.hasher = _ -> 0;
+        this.comparator = comparator;
     }
 
     public int getMemoryPointer() {
@@ -71,6 +111,11 @@ public class WasmObject {
         return new WasmObject(wasmInstance, memoryPointer);
     }
 
+    public static WasmObject ofExisting(Instance wasmInstance,
+            int memoryPointer, Comparator<Integer> comparator) {
+        return new WasmObject(wasmInstance, memoryPointer, comparator);
+    }
+
     public static WasmObject ofExistingOrDefault(Instance wasmInstance,
             int memoryPointer, WasmObject defaultValue) {
         return defaultValue;
@@ -83,16 +128,21 @@ public class WasmObject {
     }
 
     @Override
+    public int compareTo(WasmObject o) {
+        return comparator.compare(memoryPointer, o.memoryPointer);
+    }
+
+    @Override
     public boolean equals(Object object) {
         if (!(object instanceof WasmObject that)) {
             return false;
         }
-        return memoryPointer == that.memoryPointer;
+        return equalRelation.test(memoryPointer, that.memoryPointer);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(memoryPointer);
+        return hasher.applyAsInt(memoryPointer);
     }
 
     @Override

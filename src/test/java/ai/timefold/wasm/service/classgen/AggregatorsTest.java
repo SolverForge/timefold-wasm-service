@@ -21,6 +21,8 @@ import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
 import ai.timefold.wasm.service.dto.constraint.groupby.AverageAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.CountAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.MaxAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.MinAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.SumAggregator;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -173,5 +175,77 @@ public class AggregatorsTest {
         analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("average").score())
                 .isEqualTo(SimpleScore.of(20));
+    }
+
+    @Test
+    public void testMin() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("min", new WasmConstraint(List.of(
+                        new ForEachComponent("Employee"),
+                        new GroupByComponent(Collections.emptyList(), List.of(new MinAggregator(new WasmFunction("getEmployeeId"), "compareInt"))),
+                        new RewardComponent("1", new WasmFunction("scaleByCount"))
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("min").score())
+                .isEqualTo(SimpleScore.of(1));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("min").score())
+                .isEqualTo(SimpleScore.of(1));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e2, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("min").score())
+                .isEqualTo(SimpleScore.of(2));
+    }
+
+    @Test
+    public void testMax() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("max", new WasmConstraint(List.of(
+                        new ForEachComponent("Employee"),
+                        new GroupByComponent(Collections.emptyList(), List.of(new MaxAggregator(new WasmFunction("getEmployeeId"), "compareInt"))),
+                        new RewardComponent("1", new WasmFunction("scaleByCount"))
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("max").score())
+                .isEqualTo(SimpleScore.of(2));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("max").score())
+                .isEqualTo(SimpleScore.of(3));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e2, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("max").score())
+                .isEqualTo(SimpleScore.of(3));
     }
 }
