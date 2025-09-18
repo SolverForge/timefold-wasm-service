@@ -19,6 +19,7 @@ import ai.timefold.wasm.service.dto.WasmFunction;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
 import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
+import ai.timefold.wasm.service.dto.constraint.groupby.AverageAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.CountAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.SumAggregator;
 
@@ -114,7 +115,7 @@ public class AggregatorsTest {
     public void testSum() throws JsonProcessingException {
         var problem = TestUtils.getPlanningProblem();
         problem.setConstraints(
-                Map.of("count", new WasmConstraint(List.of(
+                Map.of("sum", new WasmConstraint(List.of(
                         new ForEachComponent("Employee"),
                         new GroupByComponent(Collections.emptyList(), List.of(new SumAggregator(new WasmFunction("getEmployeeId")))),
                         new RewardComponent("1", new WasmFunction("scaleByCount"))
@@ -126,7 +127,7 @@ public class AggregatorsTest {
         )));
 
         var analysis = solverResource.analyze(problem);
-        assertThat(analysis.getConstraintAnalysis("count").score())
+        assertThat(analysis.getConstraintAnalysis("sum").score())
                 .isEqualTo(SimpleScore.of(1));
 
         problem.setProblem(objectMapper.writeValueAsString(new Schedule(
@@ -134,7 +135,43 @@ public class AggregatorsTest {
         )));
 
         analysis = solverResource.analyze(problem);
-        assertThat(analysis.getConstraintAnalysis("count").score())
+        assertThat(analysis.getConstraintAnalysis("sum").score())
                 .isEqualTo(SimpleScore.of(6));
+    }
+
+    @Test
+    public void testAverage() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("average", new WasmConstraint(List.of(
+                        new ForEachComponent("Employee"),
+                        new GroupByComponent(Collections.emptyList(), List.of(new AverageAggregator(new WasmFunction("getEmployeeId")))),
+                        new RewardComponent("1", new WasmFunction("scaleByFloat"))
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("average").score())
+                .isEqualTo(SimpleScore.of(10));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("average").score())
+                .isEqualTo(SimpleScore.of(15));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("average").score())
+                .isEqualTo(SimpleScore.of(20));
     }
 }

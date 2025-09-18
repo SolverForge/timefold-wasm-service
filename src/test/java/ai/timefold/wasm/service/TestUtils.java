@@ -88,6 +88,7 @@ public class TestUtils {
                             (type (;3;) (func (param i32 i32 i32)))
                             (type (;4;) (func (param i32 i32)))
                             (type (;5;) (func (param i32) (result i32)))
+                            (type (;6;) (func (param f32) (result i32)))
                             (import "host" "hparseSchedule" (func $hparseSchedule (type 2)))
                             (import "host" "hscheduleString" (func $hscheduleString (type 5)))
                             (import "host" "hnewList" (func $hnewList (type 1)))
@@ -97,6 +98,7 @@ public class TestUtils {
                             (import "host" "happend" (func $happend (type 4)))
                             (import "host" "hinsert" (func $hinsert (type 3)))
                             (import "host" "hremove" (func $hremove (type 4)))
+                            (import "host" "hround" (func $hround (type 6)))
                             (memory 1)
                             (func (export "parseSchedule") (param $length i32) (param $schedule i32) (result i32)
                                 (local.get $length) (local.get $schedule) (call $hparseSchedule)
@@ -151,6 +153,9 @@ public class TestUtils {
                             )
                             (func (export "scaleByCount") (param $count i32) (result i32)
                                 (local.get $count)
+                            )
+                            (func (export "scaleByFloat") (param $value f32) (result i32)
+                                (local.get $value) (call $hround)
                             )
                             (func (export "alloc") (param $size i32) (result i32)
                                 (local $out i32) (i32.const 0) (i32.load) (local.set $out) (i32.const 0) (i32.add (local.get $out) (local.get $size)) (i32.store) (local.get $out)
@@ -366,7 +371,10 @@ public class TestUtils {
                         (instance, args) -> {
                             // Not needed for simple planning variables
                             throw new UnsupportedOperationException();
-                        })
+                        }),
+                new HostFunction("host", "hround",
+                        FunctionType.of(List.of(ValType.F32), List.of(ValType.I32)),
+                        (instance, args) -> new long[] { (long) (Float.intBitsToFloat((int) args[0]) * 10) })
         ));
     }
 }
