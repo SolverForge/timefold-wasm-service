@@ -20,6 +20,7 @@ import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
 import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
 import ai.timefold.wasm.service.dto.constraint.groupby.CountAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.SumAggregator;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -107,5 +108,33 @@ public class AggregatorsTest {
         analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("countDistinct").score())
                 .isEqualTo(SimpleScore.of(2));
+    }
+
+    @Test
+    public void testSum() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("count", new WasmConstraint(List.of(
+                        new ForEachComponent("Employee"),
+                        new GroupByComponent(Collections.emptyList(), List.of(new SumAggregator(new WasmFunction("getEmployeeId")))),
+                        new RewardComponent("1", new WasmFunction("scaleByCount"))
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("count").score())
+                .isEqualTo(SimpleScore.of(1));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("count").score())
+                .isEqualTo(SimpleScore.of(6));
     }
 }

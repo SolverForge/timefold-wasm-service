@@ -130,6 +130,10 @@ public final class DataStream {
         };
     }
 
+    public Class<?> getToIntFunctionClass() {
+        return getToIntFunctionClassWithExtras(0);
+    }
+
     public Class<?> getToIntFunctionClassWithExtras(int count) {
         return switch (tupleSize) {
             case 1 -> ToIntFunction.class;
