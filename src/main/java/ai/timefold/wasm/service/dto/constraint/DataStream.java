@@ -6,6 +6,8 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.ToIntBiFunction;
 import java.util.function.ToIntFunction;
+import java.util.function.ToLongBiFunction;
+import java.util.function.ToLongFunction;
 
 import ai.timefold.solver.core.api.function.PentaFunction;
 import ai.timefold.solver.core.api.function.PentaPredicate;
@@ -13,6 +15,8 @@ import ai.timefold.solver.core.api.function.QuadFunction;
 import ai.timefold.solver.core.api.function.QuadPredicate;
 import ai.timefold.solver.core.api.function.ToIntQuadFunction;
 import ai.timefold.solver.core.api.function.ToIntTriFunction;
+import ai.timefold.solver.core.api.function.ToLongQuadFunction;
+import ai.timefold.solver.core.api.function.ToLongTriFunction;
 import ai.timefold.solver.core.api.function.TriFunction;
 import ai.timefold.solver.core.api.function.TriPredicate;
 import ai.timefold.solver.core.api.score.stream.ConstraintBuilder;
@@ -155,6 +159,25 @@ public final class DataStream {
             case 2 -> ToIntBiFunction.class;
             case 3 -> ToIntTriFunction.class;
             case 4 -> ToIntQuadFunction.class;
+            default -> throw new IllegalStateException("Impossible state: tupleSize (%d) must be between 1 and 4".formatted(tupleSize + count));
+        };
+    }
+
+
+    public Class<?> getToLongFunctionClass() {
+        return getToLongFunctionClassWithExtras(0);
+    }
+
+    public Class<?> getToLongFunctionClassWithExtras(int count) {
+        return getToLongFunctionClassOfSize(tupleSize + count);
+    }
+
+    public Class<?> getToLongFunctionClassOfSize(int count) {
+        return switch (count) {
+            case 1 -> ToLongFunction.class;
+            case 2 -> ToLongBiFunction.class;
+            case 3 -> ToLongTriFunction.class;
+            case 4 -> ToLongQuadFunction.class;
             default -> throw new IllegalStateException("Impossible state: tupleSize (%d) must be between 1 and 4".formatted(tupleSize + count));
         };
     }

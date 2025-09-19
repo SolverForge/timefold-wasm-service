@@ -15,7 +15,8 @@ public enum FunctionType {
     PREDICATE(WasmFunction::asPredicate),
     MAPPER(WasmFunction::asFunction),
     LIST_MAPPER(WasmFunction::asToListFunction),
-    TO_INT(WasmFunction::asToIntFunction);
+    TO_INT(WasmFunction::asToIntFunction),
+    TO_LONG(WasmFunction::asToLongFunction);
 
     private final TriFunction<WasmFunction, Integer, Instance, Object> functionConvertor;
 
@@ -28,6 +29,7 @@ public enum FunctionType {
             case PREDICATE -> dataStream.getPredicateClassOfSize(argCount);
             case MAPPER, LIST_MAPPER -> dataStream.getFunctionClassOfSize(argCount);
             case TO_INT -> dataStream.getToIntFunctionClassOfSize(argCount);
+            case TO_LONG -> dataStream.getToLongFunctionClassOfSize(argCount);
         });
     }
 

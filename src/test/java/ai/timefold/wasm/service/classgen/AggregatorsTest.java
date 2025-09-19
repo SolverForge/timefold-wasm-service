@@ -21,6 +21,8 @@ import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
 import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
 import ai.timefold.wasm.service.dto.constraint.groupby.AverageAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.ConnectedRangeAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.ConnectedRangeField;
 import ai.timefold.wasm.service.dto.constraint.groupby.ConsecutiveAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.ConsecutiveSequenceField;
 import ai.timefold.wasm.service.dto.constraint.groupby.CountAggregator;
@@ -323,6 +325,56 @@ public class AggregatorsTest {
 
         analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("consecutive").score())
+                .isEqualTo(SimpleScore.of(9));
+    }
+
+    @Test
+    public void testConnectedRanges() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("connectedRanges", new WasmConstraint(List.of(
+                        new ForEachComponent("Employee"),
+                        new GroupByComponent(Collections.emptyList(), List.of(new ConnectedRangeAggregator(null,
+                                new WasmFunction("getEmployeeId"),
+                                new WasmFunction("getEmployeePlus2"),
+                                List.of(
+                                    ConnectedRangeField.MAX_OVERLAP
+                        )))),
+                        new FlattenLastComponent(null),
+                        new RewardComponent("1", new WasmFunction("scaleByCountItemSquared"))
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e3), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("connectedRanges").score())
+                .isEqualTo(SimpleScore.of(1));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("connectedRanges").score())
+                .isEqualTo(SimpleScore.of(4));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("connectedRanges").score())
+                .isEqualTo(SimpleScore.of(4));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2, e2, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("connectedRanges").score())
                 .isEqualTo(SimpleScore.of(9));
     }
 }

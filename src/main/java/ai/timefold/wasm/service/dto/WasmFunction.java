@@ -7,6 +7,8 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.ToIntBiFunction;
 import java.util.function.ToIntFunction;
+import java.util.function.ToLongBiFunction;
+import java.util.function.ToLongFunction;
 
 import ai.timefold.solver.core.api.function.PentaFunction;
 import ai.timefold.solver.core.api.function.PentaPredicate;
@@ -14,6 +16,8 @@ import ai.timefold.solver.core.api.function.QuadFunction;
 import ai.timefold.solver.core.api.function.QuadPredicate;
 import ai.timefold.solver.core.api.function.ToIntQuadFunction;
 import ai.timefold.solver.core.api.function.ToIntTriFunction;
+import ai.timefold.solver.core.api.function.ToLongQuadFunction;
+import ai.timefold.solver.core.api.function.ToLongTriFunction;
 import ai.timefold.solver.core.api.function.TriFunction;
 import ai.timefold.solver.core.api.function.TriPredicate;
 import ai.timefold.wasm.service.classgen.WasmList;
@@ -156,6 +160,26 @@ public class WasmFunction {
                     b.getMemoryPointer(),
                     c.getMemoryPointer())[0];
             case 4 -> (ToIntQuadFunction<WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d) -> (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer(),
+                    d.getMemoryPointer())[0];
+            default -> throw new IllegalArgumentException("Unexpected value: " + tupleSize);
+        };
+    }
+
+    public Object asToLongFunction(int tupleSize, Instance instance) {
+        var wasmFunction = instance.export(wasmFunctionName);
+        return switch (tupleSize) {
+            case 1 -> (ToLongFunction<WasmObject>) a -> wasmFunction.apply(a.getMemoryPointer())[0];
+            case 2 -> (ToLongBiFunction<WasmObject, WasmObject>) (a, b) -> wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer())[0];
+            case 3 -> (ToLongTriFunction<WasmObject, WasmObject, WasmObject>) (a, b, c) -> wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer())[0];
+            case 4 -> (ToLongQuadFunction<WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d) -> wasmFunction.apply(
                     a.getMemoryPointer(),
                     b.getMemoryPointer(),
                     c.getMemoryPointer(),
