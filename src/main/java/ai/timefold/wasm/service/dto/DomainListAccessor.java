@@ -8,5 +8,6 @@ public record DomainListAccessor(@JsonProperty("new") String createFunction,
                                  @JsonProperty("length") String getSizeFunction,
                                  @JsonProperty("append") String appendFunction,
                                  @JsonProperty("insert") String insertFunction,
-                                 @JsonProperty("remove") String removeFunction) {
+                                 @JsonProperty("remove") String removeFunction,
+                                 @JsonProperty("deallocator") String deallocator) {
 }

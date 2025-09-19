@@ -1,6 +1,7 @@
 package ai.timefold.wasm.service.classgen;
 
 import java.util.function.IntBinaryOperator;
+import java.util.function.IntConsumer;
 import java.util.function.IntFunction;
 import java.util.function.IntSupplier;
 import java.util.function.IntUnaryOperator;
@@ -29,6 +30,7 @@ public final class WasmListAccessor {
     private final IntBiConsumer appendListFunction;
     private final IntTriConsumer insertListFunction;
     private final IntBiConsumer removeListFunction;
+    private final IntConsumer deallocListFunction;
 
     public WasmListAccessor(Instance instance, DomainListAccessor domainListAccessor) {
         this.wasmInstance = instance;
@@ -40,6 +42,7 @@ public final class WasmListAccessor {
         var domainAppendListItem = instance.export(domainListAccessor.appendFunction());
         var domainInsertListItem = instance.export(domainListAccessor.insertFunction());
         var domainRemoveListItem = instance.export(domainListAccessor.removeFunction());
+        var domainDeallocListFunction = instance.export(domainListAccessor.deallocator());
 
         createListFunction = () -> (int) domainCreateList.apply()[0];
         getListItemFunction = (list, index) -> (int) domainGetListItem.apply(list, index)[0];
@@ -48,6 +51,7 @@ public final class WasmListAccessor {
         appendListFunction = domainAppendListItem::apply;
         insertListFunction = domainInsertListItem::apply;
         removeListFunction = domainRemoveListItem::apply;
+        deallocListFunction = domainDeallocListFunction::apply;
     }
 
     public WasmObject newInstance() {
@@ -78,6 +82,10 @@ public final class WasmListAccessor {
 
     public void remove(WasmObject list, int index) {
         removeListFunction.accept(list.memoryPointer, index);
+    }
+
+    public void deallocate(int memoryPointer) {
+        deallocListFunction.accept(memoryPointer);
     }
 
     public Instance getWasmInstance() {

@@ -19,6 +19,10 @@ public record MaxAggregator(
         map.setComparatorFunctionName(comparator);
     }
 
+    public MaxAggregator() {
+        this(null, null);
+    }
+
     @Override
     public String name() {
         return "max";

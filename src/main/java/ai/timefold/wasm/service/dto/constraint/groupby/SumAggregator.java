@@ -14,6 +14,10 @@ import ai.timefold.wasm.service.dto.WasmFunction;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public record SumAggregator(@JsonProperty("map") WasmFunction map) implements Aggregator{
+    public SumAggregator() {
+        this(null);
+    }
+
     @Override
     public String name() {
         return "sum";

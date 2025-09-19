@@ -36,6 +36,10 @@ public record CountAggregator(@Nullable @JsonProperty("distinct") Boolean countD
 
     }
 
+    public CountAggregator() {
+        this(null, null);
+    }
+
     public boolean isDistinct() {
         return Objects.requireNonNullElse(countDistinct, false);
     }

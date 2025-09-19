@@ -16,8 +16,9 @@ public class WasmObject implements Comparable<WasmObject> {
     private final ToIntFunction<Integer> hasher;
     private final BiPredicate<Integer, Integer> equalRelation;
 
-    public static Function<Integer, WasmObject> WRAPPING_INT = WasmObject::wrappingInt;
-    public static Function<Double, WasmObject> WRAPPING_DOUBLE = WasmObject::wrappingDouble;
+    public static final Function<Integer, WasmObject> WRAPPING_INT = WasmObject::wrappingInt;
+    public static final Function<Double, WasmObject> WRAPPING_DOUBLE = WasmObject::wrappingDouble;
+    public static final Function<WasmObject, WasmList<WasmObject>> TO_LIST = WasmObject::asList;
 
     private static final BiPredicate<Integer, Integer> DEFAULT_EQUALS = Integer::equals;
     private static final ToIntFunction<Integer> DEFAULT_HASH = Object::hashCode;
@@ -96,6 +97,10 @@ public class WasmObject implements Comparable<WasmObject> {
             return null;
         }
         return ofExisting(wasmInstance, (int) pointer);
+    }
+
+    public WasmList<WasmObject> asList() {
+        return WasmList.ofExisting(memoryPointer, WasmObject.class);
     }
 
     public static WasmObject wrappingInt(int value) {

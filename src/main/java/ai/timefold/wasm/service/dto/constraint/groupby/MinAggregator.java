@@ -19,6 +19,10 @@ public record MinAggregator(
         map.setComparatorFunctionName(comparator);
     }
 
+    public MinAggregator() {
+        this(null, null);
+    }
+
     @Override
     public String name() {
         return "min";

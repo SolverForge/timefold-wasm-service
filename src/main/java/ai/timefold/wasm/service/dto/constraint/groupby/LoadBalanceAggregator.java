@@ -17,6 +17,10 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record LoadBalanceAggregator(@JsonProperty("map") WasmFunction map) implements Aggregator {
     public static Function<LoadBalance<?>, WasmObject> LOAD_BALANCE_TO_FLOAT = loadBalance -> WasmObject.wrappingDouble(loadBalance.unfairness().doubleValue());
 
+    public LoadBalanceAggregator() {
+        this(null);
+    }
+
     @Override
     public String name() {
         return "loadBalance";

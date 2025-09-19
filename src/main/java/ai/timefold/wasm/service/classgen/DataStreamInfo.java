@@ -18,6 +18,6 @@ public record DataStreamInfo(
     }
 
     public ClassDesc loadFunction(FunctionType functionType, WasmFunction function, int extras) {
-        return constraintProviderClassGenerator.loadFunction(this, extras, functionType, function);
+        return constraintProviderClassGenerator.loadFunctionWithExtras(this, extras, functionType, function);
     }
 }

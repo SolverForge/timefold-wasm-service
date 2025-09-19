@@ -16,10 +16,13 @@ import ai.timefold.wasm.service.SolverResource;
 import ai.timefold.wasm.service.TestUtils;
 import ai.timefold.wasm.service.dto.WasmConstraint;
 import ai.timefold.wasm.service.dto.WasmFunction;
+import ai.timefold.wasm.service.dto.constraint.FlattenLastComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
 import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
 import ai.timefold.wasm.service.dto.constraint.groupby.AverageAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.ConsecutiveAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.ConsecutiveSequenceField;
 import ai.timefold.wasm.service.dto.constraint.groupby.CountAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.LoadBalanceAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.MaxAggregator;
@@ -282,5 +285,44 @@ public class AggregatorsTest {
         analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("loadBalance").score())
                 .isEqualTo(SimpleScore.of(7));
+    }
+
+    @Test
+    public void testConsecutive() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("consecutive", new WasmConstraint(List.of(
+                        new ForEachComponent("Employee"),
+                        new GroupByComponent(Collections.emptyList(), List.of(new ConsecutiveAggregator(new WasmFunction("getEmployeeId"), List.of(
+                           ConsecutiveSequenceField.COUNT
+                        )))),
+                        new FlattenLastComponent(null),
+                        new RewardComponent("1", new WasmFunction("scaleByCountItemSquared"))
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e3), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("consecutive").score())
+                .isEqualTo(SimpleScore.of(2));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("consecutive").score())
+                .isEqualTo(SimpleScore.of(4));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("consecutive").score())
+                .isEqualTo(SimpleScore.of(9));
     }
 }

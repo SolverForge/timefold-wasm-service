@@ -88,7 +88,8 @@ public class PlanningProblemDeserializationTest {
                         "size",
                         "append",
                         "insert",
-                        "remove"
+                        "remove",
+                        "dealloc"
                 ),
                 "abcd",
                 new PlanningTermination().withSpentLimit("1s")
@@ -160,7 +161,8 @@ public class PlanningProblemDeserializationTest {
                            "length": "size",
                            "append": "append",
                            "insert": "insert",
-                           "remove": "remove"
+                           "remove": "remove",
+                           "deallocator": "dealloc"
                        },
                        "problem": "abcd",
                        "environmentMode": "FULL_ASSERT",

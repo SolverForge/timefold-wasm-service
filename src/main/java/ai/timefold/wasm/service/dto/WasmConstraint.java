@@ -25,4 +25,9 @@ public class WasmConstraint {
     public List<StreamComponent> getStreamComponentList() {
         return streamComponentList;
     }
+
+    @Override
+    public String toString() {
+        return "\"%s\": %s".formatted(name, streamComponentList);
+    }
 }

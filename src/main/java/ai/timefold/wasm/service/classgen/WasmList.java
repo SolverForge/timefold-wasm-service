@@ -63,8 +63,18 @@ public final class WasmList<Item_ extends WasmObject> extends AbstractList<Item_
         if (memoryPointer == 0) {
             return null;
         }
-        return (WasmList<Item_>) wasmInstanceToListCache.computeIfAbsent(SolverResource.LIST_ACCESSOR.get().getWasmInstance(), ignored -> new HashMap<>())
+        return (WasmList<Item_>) wasmInstanceToListCache.computeIfAbsent(SolverResource.LIST_ACCESSOR.get().getWasmInstance(), _ ->
+                (ConcurrentReferenceHashMap) ConcurrentReferenceHashMap.builder()
+                        .weakValues().get())
                 .computeIfAbsent(memoryPointer, ignored -> new WasmList<>(memoryPointer, itemClass));
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <Item_ extends WasmObject> WasmList<Item_> createNew(Class<Item_> itemClass) {
+        var listAccessor = SolverResource.LIST_ACCESSOR.get();
+
+        var backingObject = listAccessor.newInstance();
+        return new WasmList<>(listAccessor, backingObject, itemClass);
     }
 
     @Override
@@ -109,5 +119,9 @@ public final class WasmList<Item_ extends WasmObject> extends AbstractList<Item_
 
     public int getMemoryAddress() {
         return wasmList.memoryPointer;
+    }
+
+    public WasmObject getWasmObject() {
+        return wasmList;
     }
 }

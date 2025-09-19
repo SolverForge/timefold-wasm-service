@@ -14,6 +14,10 @@ import ai.timefold.wasm.service.dto.WasmFunction;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public record AverageAggregator(@JsonProperty("map") WasmFunction map) implements Aggregator {
+    public AverageAggregator() {
+        this(null);
+    }
+
     @Override
     public String name() {
         return "average";

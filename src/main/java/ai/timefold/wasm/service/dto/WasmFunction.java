@@ -16,6 +16,7 @@ import ai.timefold.solver.core.api.function.ToIntQuadFunction;
 import ai.timefold.solver.core.api.function.ToIntTriFunction;
 import ai.timefold.solver.core.api.function.TriFunction;
 import ai.timefold.solver.core.api.function.TriPredicate;
+import ai.timefold.wasm.service.classgen.WasmList;
 import ai.timefold.wasm.service.classgen.WasmObject;
 
 import org.jspecify.annotations.NullMarked;
@@ -115,6 +116,32 @@ public class WasmFunction {
                 default -> throw new IllegalArgumentException("Unexpected value: " + tupleSize);
             };
         }
+    }
+
+    public Object asToListFunction(int tupleSize, Instance instance) {
+        var wasmFunction = instance.export(wasmFunctionName);
+        return switch (tupleSize) {
+            case 1 -> (Function<WasmObject, WasmList<WasmObject>>) a -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(a.getMemoryPointer())[0]).asList();
+            case 2 -> (BiFunction<WasmObject, WasmObject, WasmList<WasmObject>>) (a, b) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer())[0]).asList();
+            case 3 -> (TriFunction<WasmObject, WasmObject, WasmObject, WasmList<WasmObject>>) (a, b, c) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer())[0]).asList();
+            case 4 -> (QuadFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmList<WasmObject>>) (a, b, c, d) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer(),
+                    d.getMemoryPointer())[0]).asList();
+            case 5 -> (PentaFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject, WasmList<WasmObject>>) (a, b, c, d, e) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer(),
+                    d.getMemoryPointer(),
+                    e.getMemoryPointer())[0]).asList();
+            default -> throw new IllegalArgumentException("Unexpected value: " + tupleSize);
+        };
     }
 
     public Object asToIntFunction(int tupleSize, Instance instance) {

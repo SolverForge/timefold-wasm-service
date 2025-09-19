@@ -1,6 +1,5 @@
 package ai.timefold.wasm.service.dto.constraint;
 
-import java.lang.constant.ClassDesc;
 import java.util.function.BiFunction;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
@@ -71,7 +70,11 @@ public final class DataStream {
     }
 
     public Class<? extends ConstraintStream> getConstraintStreamClassWithExtras(int count) {
-        return switch (tupleSize + count) {
+        return getConstraintStreamClassOfSize(tupleSize + count);
+    }
+
+    public Class<? extends ConstraintStream> getConstraintStreamClassOfSize(int count) {
+        return switch (count) {
             case 1 -> UniConstraintStream.class;
             case 2 -> BiConstraintStream.class;
             case 3 -> TriConstraintStream.class;
@@ -105,7 +108,11 @@ public final class DataStream {
     }
 
     public Class<?> getPredicateClassWithExtras(int count) {
-        return switch (tupleSize + count) {
+        return getPredicateClassOfSize(tupleSize + count);
+    }
+
+    public Class<?> getPredicateClassOfSize(int count) {
+        return switch (count) {
             case 1 -> Predicate.class;
             case 2 -> BiPredicate.class;
             case 3 -> TriPredicate.class;
@@ -120,7 +127,11 @@ public final class DataStream {
     }
 
     public Class<?> getFunctionClassWithExtras(int count) {
-        return switch (tupleSize) {
+        return getFunctionClassOfSize(tupleSize + count);
+    }
+
+    public Class<?> getFunctionClassOfSize(int count) {
+        return switch (count) {
             case 1 -> Function.class;
             case 2 -> BiFunction.class;
             case 3 -> TriFunction.class;
@@ -135,7 +146,11 @@ public final class DataStream {
     }
 
     public Class<?> getToIntFunctionClassWithExtras(int count) {
-        return switch (tupleSize) {
+        return getToIntFunctionClassOfSize(tupleSize + count);
+    }
+
+    public Class<?> getToIntFunctionClassOfSize(int count) {
+        return switch (count) {
             case 1 -> ToIntFunction.class;
             case 2 -> ToIntBiFunction.class;
             case 3 -> ToIntTriFunction.class;

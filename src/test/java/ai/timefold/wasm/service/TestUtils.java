@@ -157,6 +157,9 @@ public class TestUtils {
                             (func (export "scaleByFloat") (param $value f32) (result i32)
                                 (local.get $value) (call $hround)
                             )
+                            (func (export "scaleByCountItemSquared") (param $list i32) (result i32)
+                                (local $x i32) (i32.mul (local.get $list) (i32.const 0) (call $hgetItem) (local.tee $x) (local.get $x))
+                            )
                             (func (export "compareInt") (param $a i32) (param $b i32) (result i32)
                                 (i32.sub (local.get $a) (local.get $b))
                             )
@@ -181,7 +184,8 @@ public class TestUtils {
                         "size",
                         "append",
                         "insert",
-                        "remove"
+                        "remove",
+                        "dealloc"
                 ),
                 """
                 {"employees": [{"id": 0}, {"id": 1}], "shifts": [{}, {}]}

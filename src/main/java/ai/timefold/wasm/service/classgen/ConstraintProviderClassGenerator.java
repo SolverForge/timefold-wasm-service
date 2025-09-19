@@ -10,6 +10,7 @@ import java.lang.constant.MethodTypeDesc;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import ai.timefold.solver.core.api.score.Score;
 import ai.timefold.solver.core.api.score.buildin.hardmediumsoft.HardMediumSoftScore;
@@ -25,6 +26,7 @@ import ai.timefold.wasm.service.dto.WasmFunction;
 import ai.timefold.wasm.service.dto.annotation.DomainPlanningScore;
 import ai.timefold.wasm.service.dto.constraint.DataStream;
 import ai.timefold.wasm.service.dto.constraint.FilterComponent;
+import ai.timefold.wasm.service.dto.constraint.FlattenLastComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
 import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.JoinComponent;
@@ -122,15 +124,22 @@ public class ConstraintProviderClassGenerator {
 
     public ClassDesc loadFunction(DataStreamInfo dataStreamInfo, FunctionType functionType,
             WasmFunction function) {
-        return loadFunction(dataStreamInfo, 0, functionType, function);
+        return loadFunctionWithExtras(dataStreamInfo, 0, functionType, function);
     }
 
-    public ClassDesc loadFunction(DataStreamInfo dataStreamInfo, int extras, FunctionType functionType,
+    public ClassDesc loadFunctionWithExtras(DataStreamInfo dataStreamInfo, int extras, FunctionType functionType,
             WasmFunction function) {
-        var argCount = dataStreamInfo.dataStream().getTupleSize() + extras;
+        return loadFunctionOfSize(dataStreamInfo,
+                dataStreamInfo.dataStream().getTupleSize() + extras,
+                functionType, function);
+    }
+
+
+    public ClassDesc loadFunctionOfSize(DataStreamInfo dataStreamInfo, int argCount, FunctionType functionType,
+            WasmFunction function) {
         var functionInstance = functionType.getFunction(argCount, function);
         var functionFieldName = "$function" + functionCount;
-        var functionClassDesc = functionType.getClassDescriptor(dataStreamInfo.dataStream(), extras);
+        var functionClassDesc = functionType.getClassDescriptor(dataStreamInfo.dataStream(), argCount);
         functionCount++;
         dataStreamInfo.classBuilder().withField(functionFieldName, functionClassDesc, ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC);
         classInitializerList.add(clazz -> {
@@ -188,6 +197,14 @@ public class ConstraintProviderClassGenerator {
                     var methodReturnDesc = getDescriptor(dataStream.getConstraintStreamClassWithExtras(methodParameterDescriptors.length - dataStream.getTupleSize()));
 
                     codeBuilder.invokeinterface(streamDesc, "groupBy", MethodTypeDesc.of(methodReturnDesc, methodParameterDescriptors));
+                }
+                case FlattenLastComponent flattenLastComponent -> {
+                    if (flattenLastComponent.map() == null) {
+                        codeBuilder.getstatic(wasmObjectDesc, "TO_LIST", getDescriptor(Function.class));
+                    } else {
+                        loadFunctionOfSize(dataStreamInfo, 1, FunctionType.LIST_MAPPER, flattenLastComponent.map());
+                    }
+                    codeBuilder.invokeinterface(streamDesc, "flattenLast", MethodTypeDesc.of(streamDesc, getDescriptor(Function.class)));
                 }
                 case PenalizeComponent penalizeComponent -> {
                     codeBuilder.loadConstant(penalizeComponent.weight());

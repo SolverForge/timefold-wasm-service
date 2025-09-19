@@ -14,6 +14,7 @@ import com.dylibso.chicory.runtime.Instance;
 public enum FunctionType {
     PREDICATE(WasmFunction::asPredicate),
     MAPPER(WasmFunction::asFunction),
+    LIST_MAPPER(WasmFunction::asToListFunction),
     TO_INT(WasmFunction::asToIntFunction);
 
     private final TriFunction<WasmFunction, Integer, Instance, Object> functionConvertor;
@@ -22,11 +23,11 @@ public enum FunctionType {
         this.functionConvertor = functionConvertor;
     }
 
-    public ClassDesc getClassDescriptor(DataStream dataStream, int extras) {
+    public ClassDesc getClassDescriptor(DataStream dataStream, int argCount) {
         return getDescriptor(switch (this) {
-            case PREDICATE -> dataStream.getPredicateClassWithExtras(extras);
-            case MAPPER -> dataStream.getFunctionClassWithExtras(extras);
-            case TO_INT -> dataStream.getToIntFunctionClassWithExtras(extras);
+            case PREDICATE -> dataStream.getPredicateClassOfSize(argCount);
+            case MAPPER, LIST_MAPPER -> dataStream.getFunctionClassOfSize(argCount);
+            case TO_INT -> dataStream.getToIntFunctionClassOfSize(argCount);
         });
     }
 

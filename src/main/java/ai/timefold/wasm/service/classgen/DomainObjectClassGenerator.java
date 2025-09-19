@@ -280,9 +280,7 @@ public class DomainObjectClassGenerator {
                 }
                 var finalIsPlanningScore = isPlanningScore;
 
-                if (isPlanningScore) {
-                    classBuilder.withField(field.getKey(), typeDesc, ClassFile.ACC_PRIVATE);
-                }
+                classBuilder.withField(field.getKey(), typeDesc, ClassFile.ACC_PRIVATE);
 
                 // Getter
                 classBuilder.withMethod(getGetterName(field.getKey()),
@@ -307,7 +305,19 @@ public class DomainObjectClassGenerator {
                                     codeBuilder.return_(getTypeKind(field.getValue().getType()));
                                 } else {
                                     if (field.getValue().getAccessor() != null) {
-                                        readWasmFieldUsingAccessor(field.getValue(), codeBuilder);
+                                        codeBuilder.aload(0);
+                                        codeBuilder.getfield(ClassDesc.of(domainObject.getName()), field.getKey(), typeDesc);
+                                        codeBuilder.dup();
+                                        codeBuilder.aconst_null();
+                                        codeBuilder.block(block -> {
+                                            codeBuilder.if_acmpne(block.endLabel());
+                                            codeBuilder.pop();
+                                            readWasmFieldUsingAccessor(field.getValue(), codeBuilder);
+                                            codeBuilder.dup();
+                                            codeBuilder.aload(0);
+                                            codeBuilder.swap();
+                                            codeBuilder.putfield(ClassDesc.of(domainObject.getName()), field.getKey(), typeDesc);
+                                        });
                                         codeBuilder.return_(getTypeKind(field.getValue().getType()));
                                     } else {
                                         codeBuilder.new_(getDescriptor(UnsupportedOperationException.class));
@@ -322,10 +332,11 @@ public class DomainObjectClassGenerator {
                 // Setter
                 classBuilder.withMethodBody(getSetterName(field.getKey()),
                         MethodTypeDesc.of(voidDesc, typeDesc), ClassFile.ACC_PUBLIC, codeBuilder -> {
+                                codeBuilder.aload(0);
+                                codeBuilder.aload(1);
+                                codeBuilder.putfield(ClassDesc.of(domainObject.getName()), field.getKey(), typeDesc);
+
                                 if (finalIsPlanningScore) {
-                                    codeBuilder.aload(0);
-                                    codeBuilder.aload(1);
-                                    codeBuilder.putfield(ClassDesc.of(domainObject.getName()), field.getKey(), typeDesc);
                                     codeBuilder.return_();
                                 } else {
                                     if (field.getValue().getAccessor() != null) {

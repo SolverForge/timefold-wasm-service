@@ -7,7 +7,9 @@ import com.fasterxml.jackson.databind.annotation.JsonTypeIdResolver;
 
 @JsonTypeInfo(use=JsonTypeInfo.Id.CUSTOM, property="name", visible=true)
 @JsonTypeIdResolver(AggregatorTypeIdResolver.class)
-public interface Aggregator {
+public sealed interface Aggregator
+        permits AverageAggregator, ConsecutiveAggregator, CountAggregator, LoadBalanceAggregator, MaxAggregator, MinAggregator,
+        SumAggregator {
     String name();
     void loadAggregatorInstance(DataStreamInfo dataStreamInfo);
 }
