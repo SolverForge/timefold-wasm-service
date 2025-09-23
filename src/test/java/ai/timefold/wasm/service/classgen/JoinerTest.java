@@ -20,6 +20,7 @@ import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
 import ai.timefold.wasm.service.dto.constraint.JoinComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
 import ai.timefold.wasm.service.dto.constraint.joiner.EqualJoiner;
+import ai.timefold.wasm.service.dto.constraint.joiner.FilteringJoiner;
 import ai.timefold.wasm.service.dto.constraint.joiner.GreaterThanJoiner;
 import ai.timefold.wasm.service.dto.constraint.joiner.GreaterThanOrEqualJoiner;
 import ai.timefold.wasm.service.dto.constraint.joiner.LessThanJoiner;
@@ -311,5 +312,39 @@ public class JoinerTest {
         var analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("overlapping").score())
                 .isEqualTo(SimpleScore.of(10));
+    }
+
+    @Test
+    public void testFiltering() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("filtering", new WasmConstraint(List.of(
+                        new ForEachComponent("Shift"),
+                        new JoinComponent("Employee", List.of(new FilteringJoiner(
+                                new WasmFunction("isEmployeeId0")
+                        ))),
+                        new RewardComponent("1", null)
+                )))
+        );
+
+        var shift = new Shift(e0);
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e0, e1, e2, e3), List.of(shift)
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("filtering").score())
+                .isEqualTo(SimpleScore.of(4));
+
+        shift = new Shift(e1);
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e0, e1, e2, e3), List.of(shift)
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("filtering").score())
+                .isEqualTo(SimpleScore.of(0));
     }
 }
