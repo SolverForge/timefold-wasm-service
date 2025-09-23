@@ -18,6 +18,6 @@ public record ForEachComponent(String className) implements StreamComponent {
 
     @Override
     public String kind() {
-        return "each";
+        return "forEach";
     }
 }
