@@ -9,6 +9,7 @@ import java.util.Map;
 import jakarta.inject.Inject;
 
 import ai.timefold.solver.core.api.score.buildin.simple.SimpleScore;
+import ai.timefold.solver.core.api.score.stream.ConstraintCollectors;
 import ai.timefold.wasm.service.Employee;
 import ai.timefold.wasm.service.Schedule;
 import ai.timefold.wasm.service.Shift;
@@ -16,6 +17,7 @@ import ai.timefold.wasm.service.SolverResource;
 import ai.timefold.wasm.service.TestUtils;
 import ai.timefold.wasm.service.dto.WasmConstraint;
 import ai.timefold.wasm.service.dto.WasmFunction;
+import ai.timefold.wasm.service.dto.constraint.ComplementComponent;
 import ai.timefold.wasm.service.dto.constraint.ExpandComponent;
 import ai.timefold.wasm.service.dto.constraint.FilterComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
@@ -25,6 +27,7 @@ import ai.timefold.wasm.service.dto.constraint.IfNotExistsComponent;
 import ai.timefold.wasm.service.dto.constraint.MapComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
 import ai.timefold.wasm.service.dto.constraint.groupby.CountAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.LoadBalanceAggregator;
 import ai.timefold.wasm.service.dto.constraint.joiner.GreaterThanJoiner;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -197,5 +200,44 @@ public class ComponentTest {
         analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("isEmployeeId0").score())
                 .isEqualTo(SimpleScore.of(0));
+    }
+
+    @Test
+    public void complement() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("loadBalance", new WasmConstraint(List.of(
+                        new ForEachComponent("Shift"),
+                        new GroupByComponent(List.of(new WasmFunction("getEmployee")),
+                                List.of(new CountAggregator())),
+                        new ComplementComponent("Employee"),
+                        new GroupByComponent(List.of(), List.of(new LoadBalanceAggregator(new WasmFunction("pick1"),
+                                new WasmFunction("pick2")))),
+                        new RewardComponent("1", new WasmFunction("scaleByFloat"))
+                )))
+        );
+
+        var s1 = new Shift(e0);
+        var s2 = new Shift(e1);
+        var s3 = new Shift(e2);
+        var s4 = new Shift(e3);
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e0, e1, e2, e3), List.of(s1, s2, s3, s4)
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("loadBalance").score())
+                .isEqualTo(SimpleScore.of(0));
+
+        s2 = new Shift(e0);
+        s4 = new Shift(e2);
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e0, e1, e2, e3), List.of(s1, s2, s3, s4)
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("loadBalance").score())
+                .isEqualTo(SimpleScore.of(20));
     }
 }

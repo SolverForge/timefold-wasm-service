@@ -266,7 +266,7 @@ public class AggregatorsTest {
         problem.setConstraints(
                 Map.of("loadBalance", new WasmConstraint(List.of(
                         new ForEachComponent("Shift"),
-                        new GroupByComponent(Collections.emptyList(), List.of(new LoadBalanceAggregator(new WasmFunction("getEmployee")))),
+                        new GroupByComponent(Collections.emptyList(), List.of(new LoadBalanceAggregator(new WasmFunction("getEmployee"), null))),
                         new RewardComponent("1", new WasmFunction("scaleByFloat"))
                 )))
         );

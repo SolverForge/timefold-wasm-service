@@ -12,13 +12,16 @@ import ai.timefold.wasm.service.classgen.FunctionType;
 import ai.timefold.wasm.service.classgen.WasmObject;
 import ai.timefold.wasm.service.dto.WasmFunction;
 
+import org.jspecify.annotations.Nullable;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-public record LoadBalanceAggregator(@JsonProperty("map") WasmFunction map) implements Aggregator {
+public record LoadBalanceAggregator(@JsonProperty("map") WasmFunction map,
+                                    @Nullable @JsonProperty("load") WasmFunction load) implements Aggregator {
     public static Function<LoadBalance<?>, WasmObject> LOAD_BALANCE_TO_FLOAT = loadBalance -> WasmObject.wrappingDouble(loadBalance.unfairness().doubleValue());
 
     public LoadBalanceAggregator() {
-        this(null);
+        this(null, null);
     }
 
     @Override
@@ -32,12 +35,24 @@ public record LoadBalanceAggregator(@JsonProperty("map") WasmFunction map) imple
         var constraintCollectorDesc = getDescriptor(dataStreamInfo.dataStream().getConstraintCollectorClass());
         dataStreamInfo.loadFunction(FunctionType.MAPPER, map);
 
-        codeBuilder.invokestatic(getDescriptor(ConstraintCollectors.class), "loadBalance",
-                MethodTypeDesc.of(constraintCollectorDesc,
-                        getDescriptor(dataStreamInfo.dataStream().getFunctionClass())));
-        codeBuilder.getstatic(getDescriptor(LoadBalanceAggregator.class), "LOAD_BALANCE_TO_FLOAT", getDescriptor(Function.class));
-        codeBuilder.invokestatic(getDescriptor(ConstraintCollectors.class), "collectAndThen",
-                MethodTypeDesc.of(constraintCollectorDesc,
-                        constraintCollectorDesc, getDescriptor(Function.class)));
+        if (load != null) {
+            dataStreamInfo.loadFunction(FunctionType.TO_LONG, load);
+            codeBuilder.invokestatic(getDescriptor(ConstraintCollectors.class), "loadBalance",
+                    MethodTypeDesc.of(constraintCollectorDesc,
+                            getDescriptor(dataStreamInfo.dataStream().getFunctionClass()),
+                            getDescriptor(dataStreamInfo.dataStream().getToLongFunctionClass())));
+            codeBuilder.getstatic(getDescriptor(LoadBalanceAggregator.class), "LOAD_BALANCE_TO_FLOAT", getDescriptor(Function.class));
+            codeBuilder.invokestatic(getDescriptor(ConstraintCollectors.class), "collectAndThen",
+                    MethodTypeDesc.of(constraintCollectorDesc,
+                            constraintCollectorDesc, getDescriptor(Function.class)));
+        } else {
+            codeBuilder.invokestatic(getDescriptor(ConstraintCollectors.class), "loadBalance",
+                    MethodTypeDesc.of(constraintCollectorDesc,
+                            getDescriptor(dataStreamInfo.dataStream().getFunctionClass())));
+            codeBuilder.getstatic(getDescriptor(LoadBalanceAggregator.class), "LOAD_BALANCE_TO_FLOAT", getDescriptor(Function.class));
+            codeBuilder.invokestatic(getDescriptor(ConstraintCollectors.class), "collectAndThen",
+                    MethodTypeDesc.of(constraintCollectorDesc,
+                            constraintCollectorDesc, getDescriptor(Function.class)));
+        }
     }
 }

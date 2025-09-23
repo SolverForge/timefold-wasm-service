@@ -26,6 +26,7 @@ import ai.timefold.wasm.service.dto.PlanningProblem;
 import ai.timefold.wasm.service.dto.WasmConstraint;
 import ai.timefold.wasm.service.dto.WasmFunction;
 import ai.timefold.wasm.service.dto.annotation.DomainPlanningScore;
+import ai.timefold.wasm.service.dto.constraint.ComplementComponent;
 import ai.timefold.wasm.service.dto.constraint.DataStream;
 import ai.timefold.wasm.service.dto.constraint.ExpandComponent;
 import ai.timefold.wasm.service.dto.constraint.FilterComponent;
@@ -257,6 +258,16 @@ public class ConstraintProviderClassGenerator {
                     }
                     codeBuilder.invokeinterface(streamDesc, streamComponent.kind(),
                             MethodTypeDesc.of(streamReturnTypeDesc, methodParamDescs));
+                }
+                case ComplementComponent complementComponent -> {
+                    codeBuilder.loadConstant(getDescriptor(classLoader.getClassForDomainClassName(
+                            complementComponent.className())));
+                    complementComponent.loadPadding(dataStreamInfo);
+                    var methodParamDescs = new ClassDesc[dataStream.getTupleSize()];
+                    Arrays.fill(methodParamDescs, getDescriptor(Function.class));
+                    methodParamDescs[0] = getDescriptor(Class.class);
+                    codeBuilder.invokeinterface(streamDesc, "complement",
+                            MethodTypeDesc.of(streamDesc, methodParamDescs));
                 }
                 case PenalizeComponent penalizeComponent -> {
                     codeBuilder.loadConstant(penalizeComponent.weight());

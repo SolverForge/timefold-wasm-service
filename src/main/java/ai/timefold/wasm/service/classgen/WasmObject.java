@@ -7,6 +7,8 @@ import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.function.ToIntFunction;
 
+import ai.timefold.wasm.service.SolverResource;
+
 import com.dylibso.chicory.runtime.Instance;
 
 public class WasmObject implements Comparable<WasmObject> {
@@ -19,6 +21,7 @@ public class WasmObject implements Comparable<WasmObject> {
     public static final Function<Integer, WasmObject> WRAPPING_INT = WasmObject::wrappingInt;
     public static final Function<Double, WasmObject> WRAPPING_DOUBLE = WasmObject::wrappingDouble;
     public static final Function<WasmObject, WasmList<WasmObject>> TO_LIST = WasmObject::asList;
+    public static final Function<Object, WasmObject> CONSTANT_NULL = _ -> new WasmObject(SolverResource.INSTANCE.get(), 0);
 
     private static final BiPredicate<Integer, Integer> DEFAULT_EQUALS = Integer::equals;
     private static final ToIntFunction<Integer> DEFAULT_HASH = Object::hashCode;
