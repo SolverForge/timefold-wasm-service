@@ -7,6 +7,7 @@ import java.lang.classfile.AnnotationElement;
 import java.lang.classfile.AnnotationValue;
 import java.lang.classfile.ClassFile;
 import java.lang.classfile.CodeBuilder;
+import java.lang.classfile.Label;
 import java.lang.classfile.MethodSignature;
 import java.lang.classfile.Signature;
 import java.lang.classfile.TypeKind;
@@ -80,6 +81,19 @@ public class DomainObjectClassGenerator {
             case "HardSoftScore" -> getDescriptor(HardSoftScore.class);
             case "HardMediumSoftScore" -> getDescriptor(HardMediumSoftScore.class);
             default -> ClassDesc.ofInternalName(wasmType);
+        };
+    }
+
+    static ClassDesc getWasmWrapperTypeDesc(String wasmType) {
+        if (wasmType.endsWith("[]")) {
+            return getDescriptor(WasmList.class);
+        }
+        return switch (wasmType) {
+            case "int" -> getDescriptor(Integer.class);
+            case "long" -> getDescriptor(Long.class);
+            case "float" -> getDescriptor(Float.class);
+            case "double" -> getDescriptor(Double.class);
+            default -> getWasmTypeDesc(wasmType);
         };
     }
 
@@ -280,7 +294,8 @@ public class DomainObjectClassGenerator {
                 }
                 var finalIsPlanningScore = isPlanningScore;
 
-                classBuilder.withField(field.getKey(), typeDesc, ClassFile.ACC_PRIVATE);
+                var wrapperTypeDesc = getWasmWrapperTypeDesc(field.getValue().getType());
+                classBuilder.withField(field.getKey(), wrapperTypeDesc, ClassFile.ACC_PRIVATE);
 
                 // Getter
                 classBuilder.withMethod(getGetterName(field.getKey()),
@@ -306,9 +321,10 @@ public class DomainObjectClassGenerator {
                                 } else {
                                     if (field.getValue().getAccessor() != null) {
                                         codeBuilder.aload(0);
-                                        codeBuilder.getfield(ClassDesc.of(domainObject.getName()), field.getKey(), typeDesc);
+                                        codeBuilder.getfield(ClassDesc.of(domainObject.getName()), field.getKey(), wrapperTypeDesc);
                                         codeBuilder.dup();
                                         codeBuilder.aconst_null();
+                                        Label returnLabel = codeBuilder.newLabel();
                                         codeBuilder.block(block -> {
                                             codeBuilder.if_acmpne(block.endLabel());
                                             codeBuilder.pop();
@@ -316,8 +332,24 @@ public class DomainObjectClassGenerator {
                                             codeBuilder.dup();
                                             codeBuilder.aload(0);
                                             codeBuilder.swap();
-                                            codeBuilder.putfield(ClassDesc.of(domainObject.getName()), field.getKey(), typeDesc);
+                                            if (!wrapperTypeDesc.equals(typeDesc)) {
+                                                codeBuilder.invokestatic(wrapperTypeDesc, "valueOf", MethodTypeDesc.of(wrapperTypeDesc, typeDesc));
+                                            }
+                                            codeBuilder.putfield(ClassDesc.of(domainObject.getName()), field.getKey(), wrapperTypeDesc);
+                                            if (!wrapperTypeDesc.equals(typeDesc)) {
+                                                codeBuilder.goto_(returnLabel);
+                                            }
                                         });
+                                        if (!wrapperTypeDesc.equals(typeDesc)) {
+                                            codeBuilder.invokevirtual(wrapperTypeDesc, switch (field.getValue().getType()) {
+                                                case "int" -> "intValue";
+                                                case "long" -> "longValue";
+                                                case "float" -> "floatValue";
+                                                case "double" -> "doubleValue";
+                                                default -> throw new IllegalStateException();
+                                            }, MethodTypeDesc.of(typeDesc));
+                                        }
+                                        codeBuilder.labelBinding(returnLabel);
                                         codeBuilder.return_(getTypeKind(field.getValue().getType()));
                                     } else {
                                         codeBuilder.new_(getDescriptor(UnsupportedOperationException.class));
@@ -333,15 +365,18 @@ public class DomainObjectClassGenerator {
                 classBuilder.withMethodBody(getSetterName(field.getKey()),
                         MethodTypeDesc.of(voidDesc, typeDesc), ClassFile.ACC_PUBLIC, codeBuilder -> {
                                 codeBuilder.aload(0);
-                                codeBuilder.aload(1);
-                                codeBuilder.putfield(ClassDesc.of(domainObject.getName()), field.getKey(), typeDesc);
+                                codeBuilder.loadLocal(getTypeKind(field.getValue().getType()), 1);
+                                if (!wrapperTypeDesc.equals(typeDesc)) {
+                                    codeBuilder.invokestatic(wrapperTypeDesc, "valueOf", MethodTypeDesc.of(wrapperTypeDesc, typeDesc));
+                                }
+                                codeBuilder.putfield(ClassDesc.of(domainObject.getName()), field.getKey(), wrapperTypeDesc);
 
                                 if (finalIsPlanningScore) {
                                     codeBuilder.return_();
                                 } else {
                                     if (field.getValue().getAccessor() != null) {
                                         writeWasmFieldUsingAccessor(field.getValue(), codeBuilder, valueBuilder -> {
-                                            valueBuilder.aload(1);
+                                            valueBuilder.loadLocal(getTypeKind(field.getValue().getType()), 1);
                                         });
                                         codeBuilder.return_();
                                     }else {

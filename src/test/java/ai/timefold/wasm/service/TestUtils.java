@@ -15,6 +15,7 @@ import ai.timefold.wasm.service.dto.PlanningTermination;
 import ai.timefold.wasm.service.dto.WasmConstraint;
 import ai.timefold.wasm.service.dto.WasmFunction;
 import ai.timefold.wasm.service.dto.annotation.DomainPlanningEntityCollectionProperty;
+import ai.timefold.wasm.service.dto.annotation.DomainPlanningId;
 import ai.timefold.wasm.service.dto.annotation.DomainPlanningScore;
 import ai.timefold.wasm.service.dto.annotation.DomainPlanningVariable;
 import ai.timefold.wasm.service.dto.annotation.DomainProblemFactCollectionProperty;
@@ -40,7 +41,7 @@ public class TestUtils {
                 Map.of(
                         "Employee",
                         new DomainObject(
-                                Map.of("id", new FieldDescriptor("int", null))
+                                Map.of("id", new FieldDescriptor("int", new DomainAccessor("getEmployeeId", null), List.of(new DomainPlanningId())))
                                 , null),
                         "Shift",
                         new DomainObject(

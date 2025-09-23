@@ -20,6 +20,7 @@ import ai.timefold.solver.core.api.score.buildin.simple.SimpleScore;
 import ai.timefold.solver.core.api.score.stream.Constraint;
 import ai.timefold.solver.core.api.score.stream.ConstraintFactory;
 import ai.timefold.solver.core.api.score.stream.ConstraintProvider;
+import ai.timefold.solver.core.api.score.stream.bi.BiJoiner;
 import ai.timefold.solver.core.api.score.stream.uni.UniConstraintStream;
 import ai.timefold.wasm.service.SolverResource;
 import ai.timefold.wasm.service.dto.PlanningProblem;
@@ -32,6 +33,7 @@ import ai.timefold.wasm.service.dto.constraint.ExpandComponent;
 import ai.timefold.wasm.service.dto.constraint.FilterComponent;
 import ai.timefold.wasm.service.dto.constraint.FlattenLastComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
+import ai.timefold.wasm.service.dto.constraint.ForEachUniquePairComponent;
 import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.IfExistsComponent;
 import ai.timefold.wasm.service.dto.constraint.IfNotExistsComponent;
@@ -180,6 +182,24 @@ public class ConstraintProviderClassGenerator {
                     codeBuilder.loadConstant(getDescriptor(classLoader.getClassForDomainClassName(
                             forEachComponent.className())));
                     codeBuilder.invokeinterface(constraintFactoryDesc, "forEach", MethodTypeDesc.of(streamDesc, getDescriptor(Class.class)));
+                }
+                case ForEachUniquePairComponent forEachUniquePairComponent -> {
+                    var className = getDescriptor(classLoader.getClassForDomainClassName(forEachUniquePairComponent.className()));
+                    var joiners = forEachUniquePairComponent.getJoiners();
+
+                    codeBuilder.aload(1);
+                    codeBuilder.loadConstant(className);
+                    codeBuilder.loadConstant(joiners.size());
+                    codeBuilder.anewarray(getDescriptor(dataStream.getJoinerClass()));
+                    for (var i = 0; i < joiners.size(); i++) {
+                        codeBuilder.dup();
+                        codeBuilder.loadConstant(i);
+                        joiners.get(i).loadJoinerInstance(dataStreamInfo);
+                        codeBuilder.aastore();
+                    }
+                    codeBuilder.invokeinterface(constraintFactoryDesc, "forEachUniquePair", MethodTypeDesc.of(
+                            getDescriptor(dataStream.getConstraintStreamClassWithExtras(1)), getDescriptor(Class.class),
+                            getDescriptor(BiJoiner.class).arrayType()));
                 }
                 case FilterComponent filterComponent -> {
                     var predicateDesc = loadFunction(dataStreamInfo, FunctionType.PREDICATE, filterComponent.filter());

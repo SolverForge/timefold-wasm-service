@@ -9,7 +9,6 @@ import java.util.Map;
 import jakarta.inject.Inject;
 
 import ai.timefold.solver.core.api.score.buildin.simple.SimpleScore;
-import ai.timefold.solver.core.api.score.stream.ConstraintCollectors;
 import ai.timefold.wasm.service.Employee;
 import ai.timefold.wasm.service.Schedule;
 import ai.timefold.wasm.service.Shift;
@@ -21,6 +20,7 @@ import ai.timefold.wasm.service.dto.constraint.ComplementComponent;
 import ai.timefold.wasm.service.dto.constraint.ExpandComponent;
 import ai.timefold.wasm.service.dto.constraint.FilterComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
+import ai.timefold.wasm.service.dto.constraint.ForEachUniquePairComponent;
 import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.IfExistsComponent;
 import ai.timefold.wasm.service.dto.constraint.IfNotExistsComponent;
@@ -239,5 +239,40 @@ public class ComponentTest {
         analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("loadBalance").score())
                 .isEqualTo(SimpleScore.of(20));
+    }
+
+    @Test
+    public void forEachUniquePair() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("employeeId", new WasmConstraint(List.of(
+                        new ForEachUniquePairComponent("Employee"),
+                        new RewardComponent("1", null)
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("employeeId").score())
+                .isEqualTo(SimpleScore.of(0));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("employeeId").score())
+                .isEqualTo(SimpleScore.of(1));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("employeeId").score())
+                .isEqualTo(SimpleScore.of(3));
     }
 }
