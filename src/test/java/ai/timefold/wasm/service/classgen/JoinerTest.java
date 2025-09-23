@@ -16,29 +16,15 @@ import ai.timefold.wasm.service.SolverResource;
 import ai.timefold.wasm.service.TestUtils;
 import ai.timefold.wasm.service.dto.WasmConstraint;
 import ai.timefold.wasm.service.dto.WasmFunction;
-import ai.timefold.wasm.service.dto.constraint.FlattenLastComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
-import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.JoinComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
-import ai.timefold.wasm.service.dto.constraint.groupby.AverageAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.CollectAndThenAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.ComposeAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.ConditionalAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.ConnectedRangeAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.ConnectedRangeField;
-import ai.timefold.wasm.service.dto.constraint.groupby.ConsecutiveAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.ConsecutiveSequenceField;
-import ai.timefold.wasm.service.dto.constraint.groupby.CountAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.LoadBalanceAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.MaxAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.MinAggregator;
-import ai.timefold.wasm.service.dto.constraint.groupby.SumAggregator;
 import ai.timefold.wasm.service.dto.constraint.joiner.EqualJoiner;
 import ai.timefold.wasm.service.dto.constraint.joiner.GreaterThanJoiner;
 import ai.timefold.wasm.service.dto.constraint.joiner.GreaterThanOrEqualJoiner;
 import ai.timefold.wasm.service.dto.constraint.joiner.LessThanJoiner;
 import ai.timefold.wasm.service.dto.constraint.joiner.LessThanOrEqualJoiner;
+import ai.timefold.wasm.service.dto.constraint.joiner.OverlappingJoiner;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -297,5 +283,33 @@ public class JoinerTest {
         analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("biggerOrEqualEmployee").score())
                 .isEqualTo(SimpleScore.of(7));
+    }
+
+    @Test
+    public void testOverlapping() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("overlapping", new WasmConstraint(List.of(
+                        new ForEachComponent("Employee"),
+                        new JoinComponent("Employee", List.of(new OverlappingJoiner(
+                                new WasmFunction("getEmployeeId"),
+                                new WasmFunction("getEmployeePlus2"),
+                                null,
+                                null,
+                                null,
+                                null,
+                                new WasmFunction("compareInt")
+                        ))),
+                        new RewardComponent("1", null)
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e0, e1, e2, e3), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("overlapping").score())
+                .isEqualTo(SimpleScore.of(10));
     }
 }

@@ -23,6 +23,10 @@ public sealed abstract class AbstractComparisonJoiner implements DataJoiner
     @Nullable @JsonProperty("rightMap") WasmFunction rightMap;
     @JsonProperty("comparator") WasmFunction comparator;
 
+    public AbstractComparisonJoiner() {
+
+    }
+
     public AbstractComparisonJoiner(
             @Nullable WasmFunction map,
             @Nullable WasmFunction leftMap,

@@ -8,6 +8,10 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public final class GreaterThanOrEqualJoiner extends AbstractComparisonJoiner {
+    public GreaterThanOrEqualJoiner() {
+
+    }
+
     @JsonCreator
     public GreaterThanOrEqualJoiner(@Nullable @JsonProperty("map") WasmFunction map,
             @Nullable @JsonProperty("leftMap") WasmFunction leftMap,

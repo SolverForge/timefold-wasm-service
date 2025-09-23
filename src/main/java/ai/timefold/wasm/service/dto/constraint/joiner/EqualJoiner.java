@@ -22,6 +22,10 @@ public record EqualJoiner(@Nullable @JsonProperty("map") WasmFunction map,
                           @Nullable @JsonProperty("rightMap") WasmFunction rightMap,
                           @Nullable @JsonProperty("relation") WasmFunction relationPredicate,
                           @Nullable @JsonProperty("hasher") WasmFunction hasher) implements DataJoiner {
+    public EqualJoiner() {
+        this(new WasmFunction(""), null, null, null, null);
+    }
+
     @JsonCreator
     public EqualJoiner {
         if (relationPredicate != null) {

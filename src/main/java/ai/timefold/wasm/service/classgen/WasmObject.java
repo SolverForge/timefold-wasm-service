@@ -22,9 +22,7 @@ public class WasmObject implements Comparable<WasmObject> {
 
     private static final BiPredicate<Integer, Integer> DEFAULT_EQUALS = Integer::equals;
     private static final ToIntFunction<Integer> DEFAULT_HASH = Object::hashCode;
-    private static final Comparator<Integer> DEFAULT_COMPARATOR = (a, b) -> {
-        throw new UnsupportedOperationException();
-    };
+    private static final Comparator<Integer> DEFAULT_COMPARATOR = Comparator.comparingInt(memoryAddress -> memoryAddress);
 
     public WasmObject() {
         // Required for cloning
