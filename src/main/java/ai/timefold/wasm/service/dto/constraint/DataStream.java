@@ -24,12 +24,16 @@ import ai.timefold.solver.core.api.score.stream.ConstraintStream;
 import ai.timefold.solver.core.api.score.stream.bi.BiConstraintBuilder;
 import ai.timefold.solver.core.api.score.stream.bi.BiConstraintCollector;
 import ai.timefold.solver.core.api.score.stream.bi.BiConstraintStream;
+import ai.timefold.solver.core.api.score.stream.bi.BiJoiner;
+import ai.timefold.solver.core.api.score.stream.penta.PentaJoiner;
 import ai.timefold.solver.core.api.score.stream.quad.QuadConstraintBuilder;
 import ai.timefold.solver.core.api.score.stream.quad.QuadConstraintCollector;
 import ai.timefold.solver.core.api.score.stream.quad.QuadConstraintStream;
+import ai.timefold.solver.core.api.score.stream.quad.QuadJoiner;
 import ai.timefold.solver.core.api.score.stream.tri.TriConstraintBuilder;
 import ai.timefold.solver.core.api.score.stream.tri.TriConstraintCollector;
 import ai.timefold.solver.core.api.score.stream.tri.TriConstraintStream;
+import ai.timefold.solver.core.api.score.stream.tri.TriJoiner;
 import ai.timefold.solver.core.api.score.stream.uni.UniConstraintBuilder;
 import ai.timefold.solver.core.api.score.stream.uni.UniConstraintCollector;
 import ai.timefold.solver.core.api.score.stream.uni.UniConstraintStream;
@@ -103,6 +107,16 @@ public final class DataStream {
             case 2 -> BiConstraintCollector.class;
             case 3 -> TriConstraintCollector.class;
             case 4 -> QuadConstraintCollector.class;
+            default -> throw new IllegalStateException("Impossible state: tupleSize (%d) must be between 1 and 4".formatted(tupleSize));
+        };
+    }
+
+    public Class<?> getJoinerClass() {
+        return switch (tupleSize) {
+            case 1 -> BiJoiner.class;
+            case 2 -> TriJoiner.class;
+            case 3 -> QuadJoiner.class;
+            case 4 -> PentaJoiner.class;
             default -> throw new IllegalStateException("Impossible state: tupleSize (%d) must be between 1 and 4".formatted(tupleSize));
         };
     }

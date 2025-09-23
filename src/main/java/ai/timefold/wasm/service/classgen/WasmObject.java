@@ -121,6 +121,13 @@ public class WasmObject implements Comparable<WasmObject> {
         return new WasmObject(wasmInstance, memoryPointer, comparator);
     }
 
+    public static WasmObject ofExisting(Instance wasmInstance,
+            int memoryPointer, BiPredicate<Integer, Integer> equalRelation,
+            ToIntFunction<Integer> hasher) {
+        return new WasmObject(wasmInstance, memoryPointer, equalRelation,
+                hasher, null);
+    }
+
     public static WasmObject ofExistingOrDefault(Instance wasmInstance,
             int memoryPointer, WasmObject defaultValue) {
         return defaultValue;

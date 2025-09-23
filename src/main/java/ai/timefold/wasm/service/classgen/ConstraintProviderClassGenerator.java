@@ -32,6 +32,7 @@ import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
 import ai.timefold.wasm.service.dto.constraint.JoinComponent;
 import ai.timefold.wasm.service.dto.constraint.PenalizeComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
+import ai.timefold.wasm.service.dto.constraint.joiner.DataJoiner;
 
 import static ai.timefold.wasm.service.classgen.DomainObjectClassGenerator.*;
 
@@ -177,10 +178,21 @@ public class ConstraintProviderClassGenerator {
                     var predicateDesc = loadFunction(dataStreamInfo, FunctionType.PREDICATE, filterComponent.filter());
                     codeBuilder.invokeinterface(streamDesc, "filter", MethodTypeDesc.of(streamDesc, predicateDesc));
                 }
-                case JoinComponent(String className) -> {
-                    codeBuilder.loadConstant(getDescriptor(classLoader.getClassForDomainClassName(className)));
+                case JoinComponent joinerComponent -> {
+                    codeBuilder.loadConstant(getDescriptor(classLoader.getClassForDomainClassName(joinerComponent.className())));
+                    var joiners = joinerComponent.getJoiners();
+                    codeBuilder.loadConstant(joiners.size());
+                    codeBuilder.anewarray(getDescriptor(dataStream.getJoinerClass()));
+                    for (var i = 0; i < joiners.size(); i++) {
+                        codeBuilder.dup();
+                        codeBuilder.loadConstant(i);
+                        joiners.get(i).loadJoinerInstance(dataStreamInfo);
+                        codeBuilder.aastore();
+                    }
                     codeBuilder.invokeinterface(streamDesc, "join", MethodTypeDesc.of(
-                            getDescriptor(dataStream.getConstraintStreamClassWithExtras(1)), getDescriptor(Class.class)));
+                            getDescriptor(dataStream.getConstraintStreamClassWithExtras(1)),
+                            getDescriptor(Class.class),
+                            getDescriptor(dataStream.getJoinerClass()).arrayType()));
                 }
                 case GroupByComponent groupByComponent -> {
                     var keyFunctionDesc = getDescriptor(dataStream.getFunctionClass());

@@ -35,6 +35,10 @@ public class WasmFunction {
     final String wasmFunctionName;
 
     @Nullable
+    String relationFunctionName;
+    @Nullable
+    String hashFunctionName;
+    @Nullable
     String comparatorFunctionName;
 
 
@@ -71,55 +75,97 @@ public class WasmFunction {
     }
 
     public Object asFunction(int tupleSize, Instance instance) {
-        var wasmFunction = instance.export(wasmFunctionName);
         if (comparatorFunctionName == null) {
-            return switch (tupleSize) {
-                case 1 -> (Function<WasmObject, WasmObject>) a -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(a.getMemoryPointer())[0]);
-                case 2 -> (BiFunction<WasmObject, WasmObject, WasmObject>) (a, b) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
-                        a.getMemoryPointer(),
-                        b.getMemoryPointer())[0]);
-                case 3 -> (TriFunction<WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
-                        a.getMemoryPointer(),
-                        b.getMemoryPointer(),
-                        c.getMemoryPointer())[0]);
-                case 4 -> (QuadFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
-                        a.getMemoryPointer(),
-                        b.getMemoryPointer(),
-                        c.getMemoryPointer(),
-                        d.getMemoryPointer())[0]);
-                case 5 -> (PentaFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d, e) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
-                        a.getMemoryPointer(),
-                        b.getMemoryPointer(),
-                        c.getMemoryPointer(),
-                        d.getMemoryPointer(),
-                        e.getMemoryPointer())[0]);
-                default -> throw new IllegalArgumentException("Unexpected value: " + tupleSize);
-            };
+            if (relationFunctionName == null) {
+                return asFunctionWithDefaultEqualsAndComparator(tupleSize, instance);
+            } else {
+                return asFunctionWithCustomEquals(tupleSize, instance);
+            }
         } else {
-            var comparator = getComparator(instance);
-            return switch (tupleSize) {
-                case 1 -> (Function<WasmObject, WasmObject>) a -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(a.getMemoryPointer())[0], comparator);
-                case 2 -> (BiFunction<WasmObject, WasmObject, WasmObject>) (a, b) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
-                        a.getMemoryPointer(),
-                        b.getMemoryPointer())[0], comparator);
-                case 3 -> (TriFunction<WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
-                        a.getMemoryPointer(),
-                        b.getMemoryPointer(),
-                        c.getMemoryPointer())[0], comparator);
-                case 4 -> (QuadFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
-                        a.getMemoryPointer(),
-                        b.getMemoryPointer(),
-                        c.getMemoryPointer(),
-                        d.getMemoryPointer())[0], comparator);
-                case 5 -> (PentaFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d, e) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
-                        a.getMemoryPointer(),
-                        b.getMemoryPointer(),
-                        c.getMemoryPointer(),
-                        d.getMemoryPointer(),
-                        e.getMemoryPointer())[0], comparator);
-                default -> throw new IllegalArgumentException("Unexpected value: " + tupleSize);
-            };
+            return asFunctionWithCustomComparator(tupleSize, instance);
         }
+    }
+
+    private Object asFunctionWithCustomComparator(int tupleSize, Instance instance) {
+        var wasmFunction = instance.export(wasmFunctionName);
+        var comparator = getComparator(instance);
+        return switch (tupleSize) {
+            case 1 -> (Function<WasmObject, WasmObject>) a -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(a.getMemoryPointer())[0], comparator);
+            case 2 -> (BiFunction<WasmObject, WasmObject, WasmObject>) (a, b) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer())[0], comparator);
+            case 3 -> (TriFunction<WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer())[0], comparator);
+            case 4 -> (QuadFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer(),
+                    d.getMemoryPointer())[0], comparator);
+            case 5 -> (PentaFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d, e) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer(),
+                    d.getMemoryPointer(),
+                    e.getMemoryPointer())[0], comparator);
+            default -> throw new IllegalArgumentException("Unexpected value: " + tupleSize);
+        };
+    }
+
+    private Object asFunctionWithCustomEquals(int tupleSize, Instance instance) {
+        var wasmFunction = instance.export(wasmFunctionName);
+        var relation = getRelation(instance);
+        var hasher = getHasher(instance);
+        return switch (tupleSize) {
+            case 1 -> (Function<WasmObject, WasmObject>) a -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(a.getMemoryPointer())[0],
+                    relation, hasher);
+            case 2 -> (BiFunction<WasmObject, WasmObject, WasmObject>) (a, b) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer())[0], relation, hasher);
+            case 3 -> (TriFunction<WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer())[0], relation, hasher);
+            case 4 -> (QuadFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer(),
+                    d.getMemoryPointer())[0], relation, hasher);
+            case 5 -> (PentaFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d, e) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer(),
+                    d.getMemoryPointer(),
+                    e.getMemoryPointer())[0], relation, hasher);
+            default -> throw new IllegalArgumentException("Unexpected value: " + tupleSize);
+        };
+    }
+
+    private Object asFunctionWithDefaultEqualsAndComparator(int tupleSize, Instance instance) {
+        var wasmFunction = instance.export(wasmFunctionName);
+        return switch (tupleSize) {
+            case 1 -> (Function<WasmObject, WasmObject>) a -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(a.getMemoryPointer())[0]);
+            case 2 -> (BiFunction<WasmObject, WasmObject, WasmObject>) (a, b) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer())[0]);
+            case 3 -> (TriFunction<WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer())[0]);
+            case 4 -> (QuadFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer(),
+                    d.getMemoryPointer())[0]);
+            case 5 -> (PentaFunction<WasmObject, WasmObject, WasmObject, WasmObject, WasmObject, WasmObject>) (a, b, c, d, e) -> WasmObject.ofExisting(instance, (int) wasmFunction.apply(
+                    a.getMemoryPointer(),
+                    b.getMemoryPointer(),
+                    c.getMemoryPointer(),
+                    d.getMemoryPointer(),
+                    e.getMemoryPointer())[0]);
+            default -> throw new IllegalArgumentException("Unexpected value: " + tupleSize);
+        };
     }
 
     public Object asToListFunction(int tupleSize, Instance instance) {
@@ -191,6 +237,28 @@ public class WasmFunction {
     private Comparator<Integer> getComparator(Instance instance) {
         var wasmComparator = instance.export(comparatorFunctionName);
         return (a, b) -> (int) wasmComparator.apply(a, b)[0];
+    }
+
+    private BiPredicate<Integer, Integer> getRelation(Instance instance) {
+        var wasmRelation = instance.export(relationFunctionName);
+        return (a, b) -> wasmRelation.apply(a, b)[0] != 0;
+    }
+
+    private ToIntFunction<Integer> getHasher(Instance instance) {
+        var wasmHasher =  instance.export(hashFunctionName);
+        return a -> (int) wasmHasher.apply(a)[0];
+    }
+
+    public String getWasmFunctionName() {
+        return wasmFunctionName;
+    }
+
+    public void setRelationFunctionName(@Nullable String relationFunctionName) {
+        this.relationFunctionName = relationFunctionName;
+    }
+
+    public void setHashFunctionName(@Nullable String hashFunctionName) {
+        this.hashFunctionName = hashFunctionName;
     }
 
     public void setComparatorFunctionName(String comparatorFunctionName) {

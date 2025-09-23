@@ -19,8 +19,12 @@ import ai.timefold.wasm.service.dto.WasmFunction;
 import ai.timefold.wasm.service.dto.constraint.FlattenLastComponent;
 import ai.timefold.wasm.service.dto.constraint.ForEachComponent;
 import ai.timefold.wasm.service.dto.constraint.GroupByComponent;
+import ai.timefold.wasm.service.dto.constraint.JoinComponent;
 import ai.timefold.wasm.service.dto.constraint.RewardComponent;
 import ai.timefold.wasm.service.dto.constraint.groupby.AverageAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.CollectAndThenAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.ComposeAggregator;
+import ai.timefold.wasm.service.dto.constraint.groupby.ConditionalAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.ConnectedRangeAggregator;
 import ai.timefold.wasm.service.dto.constraint.groupby.ConnectedRangeField;
 import ai.timefold.wasm.service.dto.constraint.groupby.ConsecutiveAggregator;
@@ -47,11 +51,12 @@ public class AggregatorsTest {
     @Inject
     SolverResource solverResource;
 
-    Employee e1, e2, e3;
+    Employee e0, e1, e2, e3;
 
     @BeforeEach
     public void setup() {
         TestUtils.setup(solverResource, objectMapper);
+        e0 = new Employee("0");
         e1 = new Employee("1");
         e2 = new Employee("2");
         e3 = new Employee("3");
@@ -101,7 +106,7 @@ public class AggregatorsTest {
         var s3 = new Shift(e3);
 
         problem.setProblem(objectMapper.writeValueAsString(new Schedule(
-                Collections.emptyList(), List.of(s1, s2, s3)
+                List.of(e0, e1, e2, e3), List.of(s1, s2, s3)
         )));
 
         var analysis = solverResource.analyze(problem);
@@ -111,7 +116,7 @@ public class AggregatorsTest {
         s3 = new Shift(e1);
 
         problem.setProblem(objectMapper.writeValueAsString(new Schedule(
-                Collections.emptyList(), List.of(s1, s2, s3)
+                List.of(e0, e1, e2, e3), List.of(s1, s2, s3)
         )));
 
         analysis = solverResource.analyze(problem);
@@ -270,7 +275,7 @@ public class AggregatorsTest {
         var s2 = new Shift(e2);
         var s3 = new Shift(e3);
         problem.setProblem(objectMapper.writeValueAsString(new Schedule(
-                Collections.emptyList(), List.of(s1, s2, s3)
+                List.of(e0, e1, e2, e3), List.of(s1, s2, s3)
         )));
 
         var analysis = solverResource.analyze(problem);
@@ -281,7 +286,7 @@ public class AggregatorsTest {
         s2 = new Shift(e1);
         s3 = new Shift(e3);
         problem.setProblem(objectMapper.writeValueAsString(new Schedule(
-                Collections.emptyList(), List.of(s1, s2, s3)
+                List.of(e0, e1, e2, e3), List.of(s1, s2, s3)
         )));
 
         analysis = solverResource.analyze(problem);
@@ -376,5 +381,127 @@ public class AggregatorsTest {
         analysis = solverResource.analyze(problem);
         assertThat(analysis.getConstraintAnalysis("connectedRanges").score())
                 .isEqualTo(SimpleScore.of(9));
+    }
+
+    @Test
+    public void testConditionally() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("conditionally", new WasmConstraint(List.of(
+                        new ForEachComponent("Shift"),
+                        new JoinComponent("Employee"),
+                        new GroupByComponent(Collections.emptyList(), List.of(
+                                new ConditionalAggregator(
+                                        new WasmFunction("isEmployeeId0"),
+                                        new CountAggregator(false, null)))),
+                        new RewardComponent("1", new WasmFunction("scaleByCount"))
+                )))
+        );
+
+        var s1 = new Shift(e1);
+        var s2 = new Shift(e2);
+        var s3 = new Shift(e3);
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e0, e1, e2, e3), List.of(s1, s2, s3)
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("conditionally").score())
+                .isEqualTo(SimpleScore.of(0));
+
+        s1 = new Shift(e0);
+        s3 = new Shift(e0);
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e0, e1, e2, e3), List.of(s1, s2, s3)
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("conditionally").score())
+                .isEqualTo(SimpleScore.of(8));
+    }
+
+    @Test
+    public void testCompose() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("compose", new WasmConstraint(List.of(
+                        new ForEachComponent("Employee"),
+                        new GroupByComponent(Collections.emptyList(), List.of(
+                                new ComposeAggregator(
+                                        List.of(
+                                                new MaxAggregator(new WasmFunction("getEmployeeId"),"compareInt"),
+                                                new MinAggregator(new WasmFunction("getEmployeeId"),"compareInt")
+                                        ),
+                                        new WasmFunction("compareInt")
+                                        ))),
+                        new RewardComponent("1", new WasmFunction("scaleByCount"))
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("compose").score())
+                .isEqualTo(SimpleScore.of(1));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("compose").score())
+                .isEqualTo(SimpleScore.of(2));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e2, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("compose").score())
+                .isEqualTo(SimpleScore.of(1));
+    }
+
+    @Test
+    public void testCollectAndThen() throws JsonProcessingException {
+        var problem = TestUtils.getPlanningProblem();
+        problem.setConstraints(
+                Map.of("collectAndThen", new WasmConstraint(List.of(
+                        new ForEachComponent("Employee"),
+                        new GroupByComponent(Collections.emptyList(), List.of(
+                                new CollectAndThenAggregator(
+                                        new AverageAggregator(new WasmFunction("getEmployeeId")),
+                                        new WasmFunction("round")
+                                ))),
+                        new RewardComponent("1", new WasmFunction("scaleByCount"))
+                )))
+        );
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e2), Collections.emptyList()
+        )));
+
+        var analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("collectAndThen").score())
+                .isEqualTo(SimpleScore.of(15));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e1, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("collectAndThen").score())
+                .isEqualTo(SimpleScore.of(20));
+
+        problem.setProblem(objectMapper.writeValueAsString(new Schedule(
+                List.of(e2, e3), Collections.emptyList()
+        )));
+
+        analysis = solverResource.analyze(problem);
+        assertThat(analysis.getConstraintAnalysis("collectAndThen").score())
+                .isEqualTo(SimpleScore.of(25));
     }
 }
