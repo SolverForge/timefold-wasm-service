@@ -36,6 +36,7 @@ import ai.timefold.wasm.service.dto.DomainObject;
 import ai.timefold.wasm.service.dto.FieldDescriptor;
 import ai.timefold.wasm.service.dto.PlanningProblem;
 import ai.timefold.wasm.service.dto.annotation.DomainPlanningScore;
+import ai.timefold.wasm.service.dto.annotation.DomainPlanningVariable;
 
 import com.dylibso.chicory.runtime.ExportFunction;
 import com.dylibso.chicory.runtime.Instance;
@@ -253,12 +254,15 @@ public class DomainObjectClassGenerator {
                 var typeDesc = getWasmTypeDesc(field.getValue().getType());
 
                 var isPlanningScore = false;
+                var isPlanningVariable = false;
                 for (var annotation : annotations) {
                     isPlanningEntity |= annotation.definesPlanningEntity();
                     isPlanningSolution |= annotation.definesPlanningSolution();
                     isPlanningScore |= annotation instanceof DomainPlanningScore;
+                    isPlanningVariable |= annotation instanceof DomainPlanningVariable;
                 }
                 var finalIsPlanningScore = isPlanningScore;
+                var finalIsPlanningVariable = isPlanningVariable;
 
                 var wrapperTypeDesc = getWasmWrapperTypeDesc(field.getValue().getType());
                 classBuilder.withField(field.getKey(), wrapperTypeDesc, ClassFile.ACC_PRIVATE);
@@ -336,6 +340,12 @@ public class DomainObjectClassGenerator {
                                     codeBuilder.invokestatic(wrapperTypeDesc, "valueOf", MethodTypeDesc.of(wrapperTypeDesc, typeDesc));
                                 }
                                 codeBuilder.putfield(ClassDesc.of(domainObject.getName()), field.getKey(), wrapperTypeDesc);
+
+                                // Invalidate predicate cache when planning variable changes
+                                if (finalIsPlanningVariable) {
+                                    codeBuilder.aload(0);
+                                    codeBuilder.invokevirtual(wasmObjectDesc, "invalidatePredicateCache", MethodTypeDesc.of(voidDesc));
+                                }
 
                                 if (finalIsPlanningScore) {
                                     codeBuilder.return_();

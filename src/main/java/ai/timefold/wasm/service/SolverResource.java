@@ -2,9 +2,13 @@ package ai.timefold.wasm.service;
 
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 
 import jakarta.inject.Inject;
@@ -26,6 +30,7 @@ import ai.timefold.wasm.service.dto.PlanningProblem;
 import ai.timefold.wasm.service.dto.SolveResult;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 
 import com.dylibso.chicory.compiler.MachineFactoryCompiler;
 import com.dylibso.chicory.runtime.ByteArrayMemory;
@@ -36,11 +41,19 @@ import com.dylibso.chicory.runtime.Instance;
 import com.dylibso.chicory.wasi.WasiOptions;
 import com.dylibso.chicory.wasi.WasiPreview1;
 import com.dylibso.chicory.wasm.Parser;
+import com.dylibso.chicory.wasm.WasmModule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Path("/")
 public class SolverResource {
+    private static final Logger LOG = Logger.getLogger(SolverResource.class);
+
+    // Cache parsed WASM modules by SHA-256 hash to avoid re-parsing
+    private static final ConcurrentHashMap<String, WasmModule> MODULE_CACHE = new ConcurrentHashMap<>();
+
     public static ThreadLocal<Instance> INSTANCE = new ThreadLocal<>();
+    public static ThreadLocal<ExportCache> EXPORT_CACHE = new ThreadLocal<>();
+    public static ThreadLocal<PredicateCache> PREDICATE_CACHE = new ThreadLocal<>();
     public static ThreadLocal<WasmListAccessor> LIST_ACCESSOR = new ThreadLocal<>();
     public static ThreadLocal<Allocator> ALLOCATOR = new ThreadLocal<>();
     public static ThreadLocal<DomainObjectClassLoader> GENERATED_CLASS_LOADER = new ThreadLocal<>();
@@ -51,10 +64,37 @@ public class SolverResource {
     @ConfigProperty(name = "generatedClassPath", defaultValue = "")
     Optional<String> generatedClassPath;
 
+    /**
+     * Compute SHA-256 hash of WASM bytes for cache key.
+     */
+    private static String computeWasmHash(byte[] wasmBytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(wasmBytes);
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+
+    /**
+     * Get or parse WASM module, using cache to avoid re-parsing.
+     */
+    private static WasmModule getOrParseModule(byte[] wasmBytes) {
+        String hash = computeWasmHash(wasmBytes);
+        return MODULE_CACHE.computeIfAbsent(hash, k -> {
+            LOG.infof("Parsing new WASM module (hash=%s, size=%d bytes)", hash.substring(0, 16), wasmBytes.length);
+            return Parser.parse(wasmBytes);
+        });
+    }
+
     private Instance createWasmInstance(PlanningProblem planningProblem) {
         var hostFunctions = new HostFunctionProvider(objectMapper, planningProblem).createHostFunctions();
 
-        var instanceBuilder = Instance.builder(Parser.parse(planningProblem.getWasm()))
+        // Use cached WASM module to avoid re-parsing
+        var module = getOrParseModule(planningProblem.getWasm());
+
+        var instanceBuilder = Instance.builder(module)
                 .withMemoryFactory(ByteArrayMemory::new)
                 .withMachineFactory(MachineFactoryCompiler::compile);
 
@@ -100,6 +140,8 @@ public class SolverResource {
             var classLoader = new DomainObjectClassLoader();
             GENERATED_CLASS_LOADER.set(classLoader);
             INSTANCE.set(wasmInstance);
+            EXPORT_CACHE.set(new ExportCache(wasmInstance));
+            PREDICATE_CACHE.set(new PredicateCache());
             LIST_ACCESSOR.set(new WasmListAccessor(wasmInstance, planningProblem.getListAccessor()));
             ALLOCATOR.set(new Allocator(wasmInstance, planningProblem.getAllocator(), planningProblem.getDeallocator(),
                     planningProblem.getSolutionDeallocator()));
@@ -132,6 +174,8 @@ public class SolverResource {
         } finally {
             GENERATED_CLASS_LOADER.remove();
             LIST_ACCESSOR.remove();
+            PREDICATE_CACHE.remove();
+            EXPORT_CACHE.remove();
             INSTANCE.remove();
             ALLOCATOR.remove();
         }
