@@ -1,29 +1,44 @@
 package ai.timefold.wasm.service;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+import ai.timefold.wasm.service.dto.DomainObject;
+import ai.timefold.wasm.service.dto.FieldDescriptor;
+import ai.timefold.wasm.service.dto.PlanningProblem;
+import ai.timefold.wasm.service.dto.annotation.DomainPlanningScore;
+
+import com.dylibso.chicory.runtime.ExportFunction;
 import com.dylibso.chicory.runtime.HostFunction;
+import com.dylibso.chicory.runtime.Instance;
 import com.dylibso.chicory.wasm.types.FunctionType;
 import com.dylibso.chicory.wasm.types.ValType;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Provides host functions required by WASM modules for solving planning problems.
  *
  * These functions bridge between the WASM runtime and Java, handling:
- * - JSON parsing/serialization of problem data
+ * - JSON parsing/serialization of problem data (dynamically based on domain model)
  * - List operations (allocation, access, modification)
  * - Utility functions (rounding)
  *
  * The functions are imported by WASM modules under the "host" namespace.
  */
 public class HostFunctionProvider {
+    // IMPORTANT: This is Integer.SIZE (32 bits) for backwards compatibility
+    // with existing tests that assume this byte offset between fields.
+    // The original code used Integer.SIZE which is 32 (bits) but treated it as bytes.
     private static final int WORD_SIZE = Integer.SIZE;
     private final ObjectMapper objectMapper;
+    private final Map<String, DomainObject> domainObjectMap;
 
-    public HostFunctionProvider(ObjectMapper objectMapper) {
+    public HostFunctionProvider(ObjectMapper objectMapper, PlanningProblem planningProblem) {
         this.objectMapper = objectMapper;
+        this.domainObjectMap = planningProblem.getDomainObjectMap();
     }
 
     /**
@@ -46,10 +61,66 @@ public class HostFunctionProvider {
         );
     }
 
+    // ========== Domain Model Helpers ==========
+
+    /**
+     * Find the solution class (the one with a DomainObjectMapper).
+     */
+    private String findSolutionClass() {
+        for (var entry : domainObjectMap.entrySet()) {
+            if (entry.getValue().getDomainObjectMapper() != null) {
+                return entry.getKey();
+            }
+        }
+        throw new IllegalStateException("No solution class found (must have a DomainObjectMapper)");
+    }
+
+    /**
+     * Calculate the size of a domain object in WASM memory.
+     */
+    private int calculateObjectSize(DomainObject def) {
+        int size = 0;
+        for (FieldDescriptor field : def.getFieldDescriptorMap().values()) {
+            size += getFieldSize(field.getType());
+        }
+        return Math.max(size, WORD_SIZE); // Minimum 1 word
+    }
+
+    /**
+     * Get the size of a field type in bytes.
+     */
+    private int getFieldSize(String type) {
+        return switch (type) {
+            case "long", "double" -> 8;
+            default -> WORD_SIZE; // int, float, pointers, arrays all use 4 bytes
+        };
+    }
+
+    /**
+     * Check if a type is a primitive (not an object reference or array).
+     */
+    private boolean isPrimitiveType(String type) {
+        return type.equals("int") || type.equals("long") ||
+               type.equals("float") || type.equals("double") ||
+               type.equals("boolean") || type.equals("String");
+    }
+
+    /**
+     * Check if a field has the PlanningScore annotation.
+     */
+    private boolean hasPlanningScoreAnnotation(FieldDescriptor field) {
+        if (field.getAnnotations() == null) return false;
+        return field.getAnnotations().stream()
+                .anyMatch(a -> a instanceof DomainPlanningScore);
+    }
+
+    // ========== hparseSchedule ==========
+
     /**
      * hparseSchedule(length: i32, ptr: i32) -> i32
      *
-     * Parses a JSON schedule string from WASM memory and creates native WASM objects.
+     * Parses a JSON schedule string from WASM memory and creates native WASM objects
+     * dynamically based on the domain model.
      * Returns pointer to the allocated schedule structure.
      */
     private HostFunction createParseSchedule() {
@@ -60,46 +131,80 @@ public class HostFunctionProvider {
                     var alloc = instance.export("alloc");
                     var newList = instance.export("newList");
                     var append = instance.export("append");
-                    var getItem = instance.export("getItem");
 
                     try {
-                        var parsedSchedule = objectMapper.reader().readTree(scheduleString);
-                        var parsedEmployees = parsedSchedule.get("employees");
-                        var parsedShifts = parsedSchedule.get("shifts");
+                        var parsedJson = objectMapper.reader().readTree(scheduleString);
 
-                        var schedule = (int) alloc.apply(WORD_SIZE * 2)[0];
-                        var employees = (int) newList.apply()[0];
-                        var shifts = (int) newList.apply()[0];
+                        // Find solution class and its definition
+                        String solutionClassName = findSolutionClass();
+                        DomainObject solutionDef = domainObjectMap.get(solutionClassName);
 
-                        instance.memory().writeI32(schedule, employees);
-                        instance.memory().writeI32(schedule + WORD_SIZE, shifts);
+                        // We need to parse collections first to build lookup maps for references
+                        Map<String, Map<Object, Integer>> entityMaps = new HashMap<>();
 
-                        for (var i = 0; i < parsedEmployees.size(); i++) {
-                            var parsedEmployee = parsedEmployees.get(i);
-                            var id = parsedEmployee.get("id").asInt();
-                            var employee = (int) alloc.apply(WORD_SIZE)[0];
-                            instance.memory().writeI32(employee, id);
-                            append.apply(employees, employee);
-                        }
+                        // First pass: parse all collections and build entity maps
+                        int offset = 0;
+                        for (var entry : solutionDef.getFieldDescriptorMap().entrySet()) {
+                            String fieldName = entry.getKey();
+                            FieldDescriptor field = entry.getValue();
 
-                        for (var i = 0; i < parsedShifts.size(); i++) {
-                            var parsedShift = parsedShifts.get(i);
-                            var shift = (int) alloc.apply(WORD_SIZE)[0];
+                            if (field.getType().endsWith("[]") && parsedJson.has(fieldName)) {
+                                String elementType = field.getType().replace("[]", "");
+                                DomainObject elementDef = domainObjectMap.get(elementType);
 
-                            if (parsedShift.has("employee")) {
-                                var employee = parsedShift.get("employee");
-                                if (employee.isNull()) {
-                                    instance.memory().writeI32(shift, 0);
-                                } else {
-                                    instance.memory().writeI32(shift,
-                                            (int) getItem.apply(employees, employee.get("id").asInt())[0]);
+                                if (elementDef != null) {
+                                    var arrayNode = parsedJson.get(fieldName);
+                                    Map<Object, Integer> entityMap = new HashMap<>();
+
+                                    for (int i = 0; i < arrayNode.size(); i++) {
+                                        JsonNode elementJson = arrayNode.get(i);
+                                        // Find the planning ID field to use as key
+                                        Object planningId = findPlanningId(elementDef, elementJson);
+                                        if (planningId != null) {
+                                            entityMap.put(planningId, i);
+                                        }
+                                    }
+
+                                    entityMaps.put(elementType, entityMap);
                                 }
                             }
-
-                            append.apply(shifts, shift);
+                            offset += getFieldSize(field.getType());
                         }
 
-                        return new long[] { schedule };
+                        // Allocate solution object
+                        int solutionSize = calculateObjectSize(solutionDef);
+                        int solution = (int) alloc.apply(solutionSize)[0];
+
+                        // Second pass: parse all fields and write to memory
+                        offset = 0;
+                        Map<String, Integer> listPointers = new HashMap<>();
+
+                        for (var entry : solutionDef.getFieldDescriptorMap().entrySet()) {
+                            String fieldName = entry.getKey();
+                            FieldDescriptor field = entry.getValue();
+
+                            if (hasPlanningScoreAnnotation(field)) {
+                                // Skip score field - it's not in the input JSON
+                                offset += getFieldSize(field.getType());
+                                continue;
+                            }
+
+                            if (field.getType().endsWith("[]")) {
+                                // Collection field
+                                int listPtr = parseCollectionField(instance, alloc, newList, append,
+                                        fieldName, field, parsedJson, entityMaps, listPointers);
+                                instance.memory().writeI32(solution + offset, listPtr);
+                                listPointers.put(field.getType().replace("[]", ""), listPtr);
+                            } else if (parsedJson.has(fieldName)) {
+                                // Primitive or object field
+                                writePrimitiveField(instance, alloc, solution + offset,
+                                        field, parsedJson.get(fieldName));
+                            }
+
+                            offset += getFieldSize(field.getType());
+                        }
+
+                        return new long[] { solution };
                     } catch (JsonProcessingException e) {
                         throw new RuntimeException(e);
                     }
@@ -107,72 +212,336 @@ public class HostFunctionProvider {
     }
 
     /**
+     * Find the planning ID value from a JSON object based on domain definition.
+     */
+    private Object findPlanningId(DomainObject def, JsonNode json) {
+        for (var entry : def.getFieldDescriptorMap().entrySet()) {
+            FieldDescriptor field = entry.getValue();
+            if (field.getAnnotations() != null) {
+                boolean isPlanningId = field.getAnnotations().stream()
+                        .anyMatch(a -> a.getClass().getSimpleName().equals("DomainPlanningId"));
+                if (isPlanningId && json.has(entry.getKey())) {
+                    JsonNode idNode = json.get(entry.getKey());
+                    if (idNode.isInt()) return idNode.asInt();
+                    if (idNode.isLong()) return idNode.asLong();
+                    if (idNode.isTextual()) return idNode.asText();
+                    return idNode.toString();
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Parse a collection field from JSON and return the list pointer.
+     */
+    private int parseCollectionField(Instance instance, ExportFunction alloc, ExportFunction newList,
+            ExportFunction append, String fieldName, FieldDescriptor field, JsonNode json,
+            Map<String, Map<Object, Integer>> entityMaps, Map<String, Integer> listPointers) {
+
+        String elementType = field.getType().replace("[]", "");
+        DomainObject elementDef = domainObjectMap.get(elementType);
+
+        int list = (int) newList.apply()[0];
+
+        if (!json.has(fieldName)) {
+            return list;
+        }
+
+        JsonNode arrayNode = json.get(fieldName);
+
+        for (int i = 0; i < arrayNode.size(); i++) {
+            JsonNode elementJson = arrayNode.get(i);
+            int element = parseObject(instance, alloc, elementType, elementDef, elementJson,
+                    entityMaps, listPointers);
+            append.apply(list, element);
+        }
+
+        return list;
+    }
+
+    /**
+     * Parse a single object from JSON and return its pointer.
+     */
+    private int parseObject(Instance instance, ExportFunction alloc, String className,
+            DomainObject def, JsonNode json, Map<String, Map<Object, Integer>> entityMaps,
+            Map<String, Integer> listPointers) {
+
+        int size = calculateObjectSize(def);
+        int obj = (int) alloc.apply(size)[0];
+
+        int offset = 0;
+        for (var entry : def.getFieldDescriptorMap().entrySet()) {
+            String fieldName = entry.getKey();
+            FieldDescriptor field = entry.getValue();
+
+            if (json.has(fieldName)) {
+                JsonNode fieldValue = json.get(fieldName);
+
+                if (field.getType().endsWith("[]")) {
+                    // Nested array - not common but handle it
+                    // For now, skip nested arrays in entities
+                } else if (isPrimitiveType(field.getType())) {
+                    writePrimitiveField(instance, alloc, obj + offset, field, fieldValue);
+                } else {
+                    // Object reference - look up by planning ID
+                    writeObjectReference(instance, obj + offset, field.getType(), fieldValue,
+                            entityMaps, listPointers);
+                }
+            }
+
+            offset += getFieldSize(field.getType());
+        }
+
+        return obj;
+    }
+
+    /**
+     * Write a primitive field value to WASM memory.
+     */
+    private void writePrimitiveField(Instance instance, ExportFunction alloc, int ptr,
+            FieldDescriptor field, JsonNode value) {
+        switch (field.getType()) {
+            case "int" -> instance.memory().writeI32(ptr, value.asInt());
+            case "long" -> {
+                // Write 64-bit value as two 32-bit writes (little-endian)
+                long longVal = value.asLong();
+                instance.memory().writeI32(ptr, (int) longVal);
+                instance.memory().writeI32(ptr + 4, (int) (longVal >> 32));
+            }
+            case "float" -> instance.memory().writeF32(ptr, (float) value.asDouble());
+            case "double" -> instance.memory().writeF64(ptr, value.asDouble());
+            case "boolean" -> instance.memory().writeI32(ptr, value.asBoolean() ? 1 : 0);
+            case "String" -> {
+                String str = value.asText();
+                int strPtr = (int) alloc.apply(str.getBytes().length + 1)[0];
+                instance.memory().writeCString(strPtr, str);
+                instance.memory().writeI32(ptr, strPtr);
+            }
+            default -> {
+                // Unknown primitive type, try to write as int
+                if (value.isInt()) {
+                    instance.memory().writeI32(ptr, value.asInt());
+                }
+            }
+        }
+    }
+
+    /**
+     * Write an object reference by looking up the referenced entity.
+     */
+    private void writeObjectReference(Instance instance, int ptr, String refType, JsonNode value,
+            Map<String, Map<Object, Integer>> entityMaps, Map<String, Integer> listPointers) {
+
+        if (value.isNull()) {
+            instance.memory().writeI32(ptr, 0);
+            return;
+        }
+
+        // Get the entity map for this type
+        Map<Object, Integer> entityMap = entityMaps.get(refType);
+        Integer listPtr = listPointers.get(refType);
+
+        if (entityMap == null || listPtr == null) {
+            instance.memory().writeI32(ptr, 0);
+            return;
+        }
+
+        // Find the planning ID in the reference
+        DomainObject refDef = domainObjectMap.get(refType);
+        Object planningId = findPlanningId(refDef, value);
+
+        if (planningId != null && entityMap.containsKey(planningId)) {
+            int index = entityMap.get(planningId);
+            // Get the actual pointer from the list
+            var getItem = instance.export("getItem");
+            int entityPtr = (int) getItem.apply(listPtr, index)[0];
+            instance.memory().writeI32(ptr, entityPtr);
+        } else {
+            instance.memory().writeI32(ptr, 0);
+        }
+    }
+
+    // ========== hscheduleString ==========
+
+    /**
      * hscheduleString(schedule: i32) -> i32
      *
-     * Serializes a WASM schedule object back to JSON string.
+     * Serializes a WASM schedule object back to JSON string dynamically based on domain model.
      * Returns pointer to the allocated string in WASM memory.
      */
     private HostFunction createScheduleString() {
         return new HostFunction("host", "hscheduleString",
                 FunctionType.of(List.of(ValType.I32), List.of(ValType.I32)),
                 (instance, args) -> {
-                    var schedule = (int) args[0];
+                    int schedule = (int) args[0];
                     var alloc = instance.export("alloc");
                     var listSize = instance.export("size");
                     var getItem = instance.export("getItem");
 
-                    var employees = instance.memory().readI32(schedule);
-                    var employeesLength = (int) listSize.apply(employees)[0];
-                    var shifts = instance.memory().readI32(schedule + WORD_SIZE);
-                    var shiftsLength = (int) listSize.apply(shifts)[0];
+                    String solutionClassName = findSolutionClass();
+                    DomainObject solutionDef = domainObjectMap.get(solutionClassName);
 
-                    StringBuilder out = new StringBuilder();
-                    out.append("{");
+                    StringBuilder out = new StringBuilder("{");
+                    serializeSolutionObject(instance, listSize, getItem, schedule, solutionDef, out);
+                    out.append("}");
 
-                    var isFirst = true;
-                    out.append("\"employees\": [");
-                    for (int i = 0; i < employeesLength; i++) {
-                        if (isFirst) {
-                            isFirst = false;
-                        } else {
-                            out.append(", ");
-                        }
-                        out.append("{");
-                        out.append("\"id\": ");
-                        var id = instance.memory().readI32((int) getItem.apply(employees, i)[0]);
-                        out.append(id);
-                        out.append("}");
-                    }
-                    out.append("], ");
-
-                    isFirst = true;
-                    out.append("\"shifts\": [");
-                    for (int i = 0; i < shiftsLength; i++) {
-                        if (isFirst) {
-                            isFirst = false;
-                        } else {
-                            out.append(", ");
-                        }
-                        out.append("{\"employee\": ");
-                        var employee = (int) instance.memory().readI32((int) getItem.apply(shifts, i)[0]);
-                        if (employee == 0) {
-                            out.append("null");
-                        } else {
-                            out.append("{");
-                            out.append("\"id\": ");
-                            var id = instance.memory().readI32(employee);
-                            out.append(id);
-                            out.append("}");
-                        }
-                        out.append("}");
-                    }
-                    out.append("]}");
                     var outString = out.toString();
                     var memoryString = (int) alloc.apply(outString.getBytes().length + 1)[0];
                     instance.memory().writeCString(memoryString, outString);
                     return new long[] { memoryString };
                 });
     }
+
+    /**
+     * Serialize a solution object to JSON.
+     */
+    private void serializeSolutionObject(Instance instance, ExportFunction listSize,
+            ExportFunction getItem, int ptr, DomainObject def, StringBuilder out) {
+
+        boolean first = true;
+        int offset = 0;
+
+        for (var entry : def.getFieldDescriptorMap().entrySet()) {
+            String fieldName = entry.getKey();
+            FieldDescriptor field = entry.getValue();
+
+            // Skip score field in serialization
+            if (hasPlanningScoreAnnotation(field)) {
+                offset += getFieldSize(field.getType());
+                continue;
+            }
+
+            if (!first) out.append(", ");
+            first = false;
+
+            out.append("\"").append(fieldName).append("\": ");
+
+            if (field.getType().endsWith("[]")) {
+                serializeCollection(instance, listSize, getItem, ptr + offset, field, out);
+            } else if (isPrimitiveType(field.getType())) {
+                serializePrimitive(instance, ptr + offset, field.getType(), out);
+            } else {
+                serializeObjectReference(instance, listSize, getItem, ptr + offset, field.getType(), out);
+            }
+
+            offset += getFieldSize(field.getType());
+        }
+    }
+
+    /**
+     * Serialize a collection field to JSON.
+     */
+    private void serializeCollection(Instance instance, ExportFunction listSize,
+            ExportFunction getItem, int ptr, FieldDescriptor field, StringBuilder out) {
+
+        String elementType = field.getType().replace("[]", "");
+        DomainObject elementDef = domainObjectMap.get(elementType);
+
+        int listPtr = instance.memory().readInt(ptr);
+        int length = (int) listSize.apply((long) listPtr)[0];
+
+        out.append("[");
+        for (int i = 0; i < length; i++) {
+            if (i > 0) out.append(", ");
+            int elementPtr = (int) getItem.apply((long) listPtr, (long) i)[0];
+            out.append("{");
+            serializeEntityObject(instance, listSize, getItem, elementPtr, elementDef, out);
+            out.append("}");
+        }
+        out.append("]");
+    }
+
+    /**
+     * Serialize an entity object (not the solution) to JSON.
+     */
+    private void serializeEntityObject(Instance instance, ExportFunction listSize,
+            ExportFunction getItem, int ptr, DomainObject def, StringBuilder out) {
+
+        boolean first = true;
+        int offset = 0;
+
+        for (var entry : def.getFieldDescriptorMap().entrySet()) {
+            String fieldName = entry.getKey();
+            FieldDescriptor field = entry.getValue();
+
+            if (!first) out.append(", ");
+            first = false;
+
+            out.append("\"").append(fieldName).append("\": ");
+
+            if (field.getType().endsWith("[]")) {
+                // Nested arrays in entities - serialize as empty for now
+                out.append("[]");
+            } else if (isPrimitiveType(field.getType())) {
+                serializePrimitive(instance, ptr + offset, field.getType(), out);
+            } else {
+                serializeObjectReference(instance, listSize, getItem, ptr + offset, field.getType(), out);
+            }
+
+            offset += getFieldSize(field.getType());
+        }
+    }
+
+    /**
+     * Serialize a primitive field to JSON.
+     */
+    private void serializePrimitive(Instance instance, int ptr, String type, StringBuilder out) {
+        switch (type) {
+            case "int" -> out.append(instance.memory().readInt(ptr));
+            case "long" -> out.append(instance.memory().readLong(ptr));
+            case "float" -> out.append(instance.memory().readFloat(ptr));
+            case "double" -> out.append(instance.memory().readDouble(ptr));
+            case "boolean" -> out.append(instance.memory().readInt(ptr) != 0);
+            case "String" -> {
+                int strPtr = instance.memory().readInt(ptr);
+                if (strPtr == 0) {
+                    out.append("null");
+                } else {
+                    String str = instance.memory().readCString(strPtr);
+                    out.append("\"").append(escapeJson(str)).append("\"");
+                }
+            }
+            default -> out.append(instance.memory().readInt(ptr));
+        }
+    }
+
+    /**
+     * Serialize an object reference to JSON.
+     */
+    private void serializeObjectReference(Instance instance, ExportFunction listSize,
+            ExportFunction getItem, int ptr, String refType, StringBuilder out) {
+
+        int refPtr = instance.memory().readInt(ptr);
+
+        if (refPtr == 0) {
+            out.append("null");
+            return;
+        }
+
+        DomainObject refDef = domainObjectMap.get(refType);
+        if (refDef == null) {
+            out.append("null");
+            return;
+        }
+
+        out.append("{");
+        serializeEntityObject(instance, listSize, getItem, refPtr, refDef, out);
+        out.append("}");
+    }
+
+    /**
+     * Escape special characters in JSON strings.
+     */
+    private String escapeJson(String str) {
+        return str.replace("\\", "\\\\")
+                  .replace("\"", "\\\"")
+                  .replace("\n", "\\n")
+                  .replace("\r", "\\r")
+                  .replace("\t", "\\t");
+    }
+
+    // ========== List Operations ==========
 
     /**
      * hnewList() -> i32

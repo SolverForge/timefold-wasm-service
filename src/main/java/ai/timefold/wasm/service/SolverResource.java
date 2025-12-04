@@ -52,7 +52,7 @@ public class SolverResource {
     Optional<String> generatedClassPath;
 
     private Instance createWasmInstance(PlanningProblem planningProblem) {
-        var hostFunctions = new HostFunctionProvider(objectMapper).createHostFunctions();
+        var hostFunctions = new HostFunctionProvider(objectMapper, planningProblem).createHostFunctions();
 
         var instanceBuilder = Instance.builder(Parser.parse(planningProblem.getWasm()))
                 .withMemoryFactory(ByteArrayMemory::new)

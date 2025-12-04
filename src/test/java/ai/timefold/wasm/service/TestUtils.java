@@ -1,6 +1,7 @@
 package ai.timefold.wasm.service;
 
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -33,30 +34,31 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class TestUtils {
     public static PlanningProblem getPlanningProblem() {
+        // Use LinkedHashMap to preserve field order - critical for WASM memory layout
+        var employeeFields = new LinkedHashMap<String, FieldDescriptor>();
+        employeeFields.put("id", new FieldDescriptor("int", new DomainAccessor("getEmployeeId", null), List.of(new DomainPlanningId())));
+
+        var shiftFields = new LinkedHashMap<String, FieldDescriptor>();
+        shiftFields.put("employee", new FieldDescriptor("Employee",
+                new DomainAccessor("getEmployee", "setEmployee"),
+                List.of(new DomainPlanningVariable(false))));
+
+        var scheduleFields = new LinkedHashMap<String, FieldDescriptor>();
+        scheduleFields.put("employees", new FieldDescriptor("Employee[]",
+                new DomainAccessor("getEmployees", "setEmployees"),
+                List.of(new DomainProblemFactCollectionProperty(), new DomainValueRangeProvider())));
+        scheduleFields.put("shifts", new FieldDescriptor("Shift[]",
+                new DomainAccessor("getShifts", "setShifts"),
+                List.of(new DomainPlanningEntityCollectionProperty())));
+        scheduleFields.put("score", new FieldDescriptor("SimpleScore", List.of(new DomainPlanningScore())));
+
+        var domainObjects = new LinkedHashMap<String, DomainObject>();
+        domainObjects.put("Employee", new DomainObject(employeeFields, null));
+        domainObjects.put("Shift", new DomainObject(shiftFields, null));
+        domainObjects.put("Schedule", new DomainObject(scheduleFields, new DomainObjectMapper("parseSchedule", "scheduleString")));
+
         return new PlanningProblem(
-                Map.of(
-                        "Employee",
-                        new DomainObject(
-                                Map.of("id", new FieldDescriptor("int", new DomainAccessor("getEmployeeId", null), List.of(new DomainPlanningId())))
-                                , null),
-                        "Shift",
-                        new DomainObject(
-                                Map.of("employee", new FieldDescriptor("Employee",
-                                        new DomainAccessor("getEmployee", "setEmployee"),
-                                        List.of(new DomainPlanningVariable(false))))
-                                , null),
-                        "Schedule",
-                        new DomainObject(
-                                Map.of("employees", new FieldDescriptor("Employee[]",
-                                                new DomainAccessor("getEmployees", "setEmployees"),
-                                                List.of(new DomainProblemFactCollectionProperty(), new DomainValueRangeProvider())),
-                                        "shifts",
-                                        new FieldDescriptor("Shift[]",
-                                                new DomainAccessor("getShifts", "setShifts"),
-                                                List.of(new DomainPlanningEntityCollectionProperty())),
-                                        "score", new  FieldDescriptor("SimpleScore", List.of(new DomainPlanningScore()))
-                                ),new DomainObjectMapper("parseSchedule", "scheduleString"))
-                ),
+                domainObjects,
                 Map.of(
                         "penalizeId0", new WasmConstraint(
                                 List.of(
