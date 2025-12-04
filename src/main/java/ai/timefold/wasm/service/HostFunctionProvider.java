@@ -57,7 +57,8 @@ public class HostFunctionProvider {
                 createAppend(),
                 createInsert(),
                 createRemove(),
-                createRound()
+                createRound(),
+                createStringEquals()
         );
     }
 
@@ -683,5 +684,40 @@ public class HostFunctionProvider {
         return new HostFunction("host", "hround",
                 FunctionType.of(List.of(ValType.F32), List.of(ValType.I32)),
                 (instance, args) -> new long[] { (long) (Float.intBitsToFloat((int) args[0]) * 10) });
+    }
+
+    /**
+     * hstringEquals(ptr1: i32, ptr2: i32) -> i32
+     *
+     * Compares two C strings in WASM memory for equality.
+     * Returns 1 if the strings are equal (same content), 0 otherwise.
+     *
+     * This function is needed because strings allocated in WASM memory
+     * may have different pointers even when they have identical content.
+     * Pointer comparison alone is insufficient for string equality.
+     */
+    private HostFunction createStringEquals() {
+        return new HostFunction("host", "hstringEquals",
+                FunctionType.of(List.of(ValType.I32, ValType.I32), List.of(ValType.I32)),
+                (instance, args) -> {
+                    int ptr1 = (int) args[0];
+                    int ptr2 = (int) args[1];
+
+                    // If pointers are equal, strings are equal
+                    if (ptr1 == ptr2) {
+                        return new long[] { 1 };
+                    }
+
+                    // If either pointer is null, strings are not equal
+                    if (ptr1 == 0 || ptr2 == 0) {
+                        return new long[] { 0 };
+                    }
+
+                    // Read C strings from memory and compare
+                    String str1 = instance.memory().readCString(ptr1);
+                    String str2 = instance.memory().readCString(ptr2);
+
+                    return new long[] { str1.equals(str2) ? 1 : 0 };
+                });
     }
 }
