@@ -16,7 +16,9 @@ public record MaxAggregator(
         @JsonProperty("comparator") String comparator) implements Aggregator{
 
     public MaxAggregator {
-        map.setComparatorFunctionName(comparator);
+        if (map != null) {
+            map.setComparatorFunctionName(comparator);
+        }
     }
 
     public MaxAggregator() {

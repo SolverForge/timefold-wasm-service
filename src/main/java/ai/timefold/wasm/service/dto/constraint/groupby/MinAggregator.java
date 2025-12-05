@@ -16,7 +16,9 @@ public record MinAggregator(
         @JsonProperty("comparator") String comparator) implements Aggregator{
 
     public MinAggregator {
-        map.setComparatorFunctionName(comparator);
+        if (map != null) {
+            map.setComparatorFunctionName(comparator);
+        }
     }
 
     public MinAggregator() {
