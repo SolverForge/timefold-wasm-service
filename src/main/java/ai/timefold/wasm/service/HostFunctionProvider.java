@@ -90,13 +90,27 @@ public class HostFunctionProvider {
 
     /**
      * Calculate the size of a domain object in WASM memory.
+     * Accounts for alignment requirements matching Rust's LayoutCalculator.
      */
     private int calculateObjectSize(DomainObject def) {
-        int size = 0;
+        int currentOffset = 0;
+        int maxAlignment = WORD_SIZE;
+
         for (FieldDescriptor field : def.getFieldDescriptorMap().values()) {
-            size += getFieldSize(field.getType());
+            int fieldAlignment = getFieldAlignment(field.getType());
+            int fieldSize = getFieldSize(field.getType());
+
+            // Align current offset for this field
+            currentOffset = alignOffset(currentOffset, fieldAlignment);
+            currentOffset += fieldSize;
+
+            maxAlignment = Math.max(maxAlignment, fieldAlignment);
         }
-        return Math.max(size, WORD_SIZE); // Minimum 1 word
+
+        // Align total size to max alignment
+        currentOffset = alignOffset(currentOffset, maxAlignment);
+
+        return Math.max(currentOffset, WORD_SIZE); // Minimum 1 word
     }
 
     /**
@@ -107,6 +121,27 @@ public class HostFunctionProvider {
             case "long", "double", "LocalDate", "LocalDateTime" -> 8; // LocalDate/LocalDateTime stored as long
             default -> WORD_SIZE; // int, float, pointers, arrays all use 4 bytes
         };
+    }
+
+    /**
+     * Get the alignment of a field type in bytes.
+     * Alignment must match Rust's WasmMemoryType alignment.
+     */
+    private int getFieldAlignment(String type) {
+        return switch (type) {
+            case "long", "double", "LocalDate", "LocalDateTime" -> 8; // 64-bit types need 8-byte alignment
+            default -> WORD_SIZE; // 32-bit types need 4-byte alignment
+        };
+    }
+
+    /**
+     * Align an offset to the required alignment boundary.
+     */
+    private int alignOffset(int offset, int alignment) {
+        if (offset % alignment == 0) {
+            return offset;
+        }
+        return ((offset / alignment) + 1) * alignment;
     }
 
     /**
@@ -162,6 +197,10 @@ public class HostFunctionProvider {
                             String fieldName = entry.getKey();
                             FieldDescriptor field = entry.getValue();
 
+                            // Align offset for this field's type
+                            int fieldAlignment = getFieldAlignment(field.getType());
+                            offset = alignOffset(offset, fieldAlignment);
+
                             if (field.getType().endsWith("[]") && parsedJson.has(fieldName)) {
                                 String elementType = field.getType().replace("[]", "");
                                 DomainObject elementDef = domainObjectMap.get(elementType);
@@ -196,6 +235,10 @@ public class HostFunctionProvider {
                         for (var entry : solutionDef.getFieldDescriptorMap().entrySet()) {
                             String fieldName = entry.getKey();
                             FieldDescriptor field = entry.getValue();
+
+                            // Align offset for this field's type
+                            int fieldAlignment = getFieldAlignment(field.getType());
+                            offset = alignOffset(offset, fieldAlignment);
 
                             if (hasPlanningScoreAnnotation(field)) {
                                 // Skip score field - it's not in the input JSON
@@ -289,6 +332,10 @@ public class HostFunctionProvider {
         for (var entry : def.getFieldDescriptorMap().entrySet()) {
             String fieldName = entry.getKey();
             FieldDescriptor field = entry.getValue();
+
+            // Align offset for this field's type
+            int fieldAlignment = getFieldAlignment(field.getType());
+            offset = alignOffset(offset, fieldAlignment);
 
             if (field.getType().endsWith("[]")) {
                 // Nested array field - create list and populate it
@@ -494,6 +541,10 @@ public class HostFunctionProvider {
             String fieldName = entry.getKey();
             FieldDescriptor field = entry.getValue();
 
+            // Align offset for this field's type
+            int fieldAlignment = getFieldAlignment(field.getType());
+            offset = alignOffset(offset, fieldAlignment);
+
             // Skip score field in serialization
             if (hasPlanningScoreAnnotation(field)) {
                 offset += getFieldSize(field.getType());
@@ -552,6 +603,10 @@ public class HostFunctionProvider {
         for (var entry : def.getFieldDescriptorMap().entrySet()) {
             String fieldName = entry.getKey();
             FieldDescriptor field = entry.getValue();
+
+            // Align offset for this field's type
+            int fieldAlignment = getFieldAlignment(field.getType());
+            offset = alignOffset(offset, fieldAlignment);
 
             if (!first) out.append(", ");
             first = false;
