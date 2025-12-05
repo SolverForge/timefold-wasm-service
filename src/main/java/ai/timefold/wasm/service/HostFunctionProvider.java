@@ -266,8 +266,8 @@ public class HostFunctionProvider {
 
         for (int i = 0; i < arrayNode.size(); i++) {
             JsonNode elementJson = arrayNode.get(i);
-            int element = parseObject(instance, alloc, elementType, elementDef, elementJson,
-                    entityMaps, listPointers);
+            int element = parseObject(instance, alloc, newList, append, elementType, elementDef,
+                    elementJson, entityMaps, listPointers);
             append.apply(list, element);
         }
 
@@ -277,7 +277,8 @@ public class HostFunctionProvider {
     /**
      * Parse a single object from JSON and return its pointer.
      */
-    private int parseObject(Instance instance, ExportFunction alloc, String className,
+    private int parseObject(Instance instance, ExportFunction alloc, ExportFunction newList,
+            ExportFunction append, String className,
             DomainObject def, JsonNode json, Map<String, Map<Object, Integer>> entityMaps,
             Map<String, Integer> listPointers) {
 
@@ -289,13 +290,15 @@ public class HostFunctionProvider {
             String fieldName = entry.getKey();
             FieldDescriptor field = entry.getValue();
 
-            if (json.has(fieldName)) {
+            if (field.getType().endsWith("[]")) {
+                // Nested array field - create list and populate it
+                int listPtr = parseNestedList(instance, alloc, newList, append,
+                        fieldName, field, json, entityMaps, listPointers);
+                instance.memory().writeI32(obj + offset, listPtr);
+            } else if (json.has(fieldName)) {
                 JsonNode fieldValue = json.get(fieldName);
 
-                if (field.getType().endsWith("[]")) {
-                    // Nested array - not common but handle it
-                    // For now, skip nested arrays in entities
-                } else if (isPrimitiveType(field.getType())) {
+                if (isPrimitiveType(field.getType())) {
                     writePrimitiveField(instance, alloc, obj + offset, field, fieldValue);
                 } else {
                     // Object reference - look up by planning ID
@@ -308,6 +311,45 @@ public class HostFunctionProvider {
         }
 
         return obj;
+    }
+
+    /**
+     * Parse a nested list field within an entity (e.g., Employee.unavailableDates).
+     * Returns a list pointer (never null - returns empty list if field missing).
+     */
+    private int parseNestedList(Instance instance, ExportFunction alloc, ExportFunction newList,
+            ExportFunction append, String fieldName, FieldDescriptor field, JsonNode parentJson,
+            Map<String, Map<Object, Integer>> entityMaps, Map<String, Integer> listPointers) {
+
+        String elementType = field.getType().replace("[]", "");
+        int list = (int) newList.apply()[0];
+
+        if (!parentJson.has(fieldName)) {
+            return list; // Return empty list if field not present
+        }
+
+        JsonNode arrayNode = parentJson.get(fieldName);
+        for (int i = 0; i < arrayNode.size(); i++) {
+            JsonNode elementJson = arrayNode.get(i);
+
+            if (isPrimitiveType(elementType)) {
+                // Primitive element - allocate and write value
+                int elementPtr = (int) alloc.apply(getFieldSize(elementType))[0];
+                FieldDescriptor tempField = new FieldDescriptor(elementType, null, null);
+                writePrimitiveField(instance, alloc, elementPtr, tempField, elementJson);
+                append.apply(list, elementPtr);
+            } else {
+                // Object element - parse recursively
+                DomainObject elementDef = domainObjectMap.get(elementType);
+                if (elementDef != null) {
+                    int element = parseObject(instance, alloc, newList, append,
+                            elementType, elementDef, elementJson, entityMaps, listPointers);
+                    append.apply(list, element);
+                }
+            }
+        }
+
+        return list;
     }
 
     /**
@@ -333,9 +375,15 @@ public class HostFunctionProvider {
                 instance.memory().writeI32(ptr, strPtr);
             }
             case "LocalDate" -> {
-                // Parse ISO date string (e.g., "2024-01-15") and store as epoch day (long)
-                LocalDate date = LocalDate.parse(value.asText());
-                long epochDay = date.toEpochDay();
+                // Store as epoch day (long)
+                // Accept either ISO date string (e.g., "2024-01-15") or epoch day integer
+                long epochDay;
+                if (value.isNumber()) {
+                    epochDay = value.asLong();
+                } else {
+                    LocalDate date = LocalDate.parse(value.asText());
+                    epochDay = date.toEpochDay();
+                }
                 instance.memory().writeI32(ptr, (int) epochDay);
                 instance.memory().writeI32(ptr + 4, (int) (epochDay >> 32));
             }
