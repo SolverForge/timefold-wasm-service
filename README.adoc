@@ -2,10 +2,94 @@
 
 A Quarkus REST service that can solve and analyze arbitrary planning problems using WASM code.
 
+This is an extended version of the original implementation by Christopher Chianelli, with significant enhancements including performance optimizations, additional constraint stream operations, temporal type support, and comprehensive aggregation capabilities.
+
 == Requirements
 
 - JDK 24 or above
 - Maven
+
+== Key Features
+
+=== Core Capabilities
+- **Dynamic Class Generation**: Generates Java domain classes and constraint providers at runtime from JSON specifications
+- **WASM Integration**: Executes WebAssembly modules via Chicory compiler for high-performance constraint evaluation
+- **Full Constraint Streams API**: Comprehensive support for Timefold's constraint stream operations
+- **Score Analysis**: Detailed constraint analysis through the `/analyze` endpoint
+
+=== Performance Optimizations
+- **WASM Module Caching**: SHA-256 based caching prevents re-parsing identical WASM modules
+- **Export Function Caching**: Cached WASM export lookups reduce overhead
+- **Predicate Result Caching**: Memoization of predicate evaluation results
+- **Geometric List Growth**: O(n) amortized append operations for efficient list handling
+- **Memory Layout Optimization**: Aligned field offsets matching Rust's LayoutCalculator
+
+=== Enhanced Constraint Stream Operations
+
+**Stream Transformations:**
+- `forEach` - Iterate over planning entities
+- `forEachUniquePair` - Process unique pairs with joiners
+- `join` - Join streams with custom joiners
+- `filter` - Filter elements by predicate
+- `map` - Transform stream elements
+- `expand` - One-to-many transformations
+- `flattenLast` - Flatten nested collections (including primitive int lists)
+- `ifExists` / `ifNotExists` - Conditional existence checks
+- `complement` - Set complement operations
+
+**Aggregations (via `groupBy`):**
+- `count` - Count elements
+- `sum` - Sum numeric values
+- `min` / `max` - Find minimum/maximum values (with null safety)
+- `average` - Calculate averages
+- `loadBalance` - Fair load distribution aggregator
+- `consecutive` - Consecutive sequence detection
+- `connectedRange` - Connected range aggregation
+- Meta-aggregators: `compose`, `collectAndThen`, `conditional`
+
+**Joiners:**
+- Equal, lessThan, lessThanOrEqual, greaterThan, greaterThanOrEqual joiners
+- Overlapping and filtering joiners
+
+=== Data Type Support
+- Primitives: `int`, `long`, `float`, `double`
+- String and collections (including primitive int lists)
+- Temporal types: `LocalDate`, `LocalDateTime`
+- Score types: `SimpleScore`, `HardSoftScore`, `HardMediumSoftScore`, `HardSoftBigDecimalScore`
+
+=== Host Functions
+- Auto-generated host functions for domain-specific operations
+- String comparison: `hstringEquals`
+- List operations: `hlistContainsString`
+- Dynamic domain model parsing in host functions
+
+=== Observability & Reliability
+- **Health Endpoint**: Service readiness checks via `/health`
+- **Solver Statistics**: Response includes detailed metrics:
+  - Time spent (milliseconds)
+  - Score calculation count and speed
+  - Move evaluation count and speed
+- **Enhanced Error Handling**: Full cause chain with stack frames in error responses
+
+=== Improvements Over Original Implementation
+
+**Memory & Performance:**
+- Geometric growth algorithm for dynamic lists (prevents O(n²) behavior)
+- WASM module caching eliminates redundant parsing
+- Critical memory layout fixes ensure correct field offset alignment
+- Primitive list support with optimized i32 storage
+
+**API Enhancements:**
+- Solver statistics in solve responses
+- Optional solution deallocator for flexible memory management
+- Health check endpoint for service monitoring
+- Nested list field parsing
+
+**Extended Constraint Capabilities:**
+- Complete set of aggregators (10+ types)
+- Advanced stream operations (expand, complement, flattenLast)
+- Meta-collectors for complex aggregation patterns
+- Comprehensive joiner implementations
 
 == Request format
 
@@ -166,11 +250,30 @@ An example planning problem request look like this:
 
 === `/solve`
 
-The `/solve` endpoint runs Timefold Solver and returns the optimized solution.
+The `/solve` endpoint runs Timefold Solver and returns the optimized solution along with solver statistics.
+
+**Response Format:**
+```json
+{
+  "solution": "{\"employees\":[...], ...}",
+  "score": "18",
+  "stats": {
+    "timeSpentMillis": 1234,
+    "scoreCalculationCount": 5678,
+    "scoreCalculationSpeed": 4567,
+    "moveEvaluationCount": 9012,
+    "moveEvaluationSpeed": 7345
+  }
+}
+```
 
 === `/analyze`
 
-The `/analyze` endpoint returns the `ScoreAnalysis` of the provided solution.
+The `/analyze` endpoint returns the `ScoreAnalysis` of the provided solution, including per-constraint breakdowns.
+
+=== `/health`
+
+The `/health` endpoint provides service readiness checks for monitoring and orchestration.
 
 == Building
 
@@ -183,3 +286,16 @@ mvn clean install
 ```bash
 java -jar target/quarkus-app/quarkus-run.jar
 ```
+
+== Development History
+
+This implementation extends the original proof-of-concept by Christopher Chianelli (https://github.com/Christopher-Chianelli/timefold-wasm-service.git[timefold-wasm-service]) with:
+
+- **Performance optimizations** including caching, geometric list growth, and memory layout improvements
+- **10+ new aggregators** for advanced constraint modeling
+- **Extended stream operations** (expand, complement, flattenLast, forEachUniquePair)
+- **Temporal type support** (LocalDate, LocalDateTime)
+- **Production-ready features** (health checks, solver statistics, enhanced error reporting)
+- **Comprehensive test coverage** for new functionality
+
+The service is used as a backend for SolverForge, enabling constraint solving from Rust and other languages via WASM compilation.
