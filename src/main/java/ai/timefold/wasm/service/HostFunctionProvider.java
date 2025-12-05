@@ -1,6 +1,8 @@
 package ai.timefold.wasm.service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -101,7 +103,7 @@ public class HostFunctionProvider {
      */
     private int getFieldSize(String type) {
         return switch (type) {
-            case "long", "double", "LocalDate" -> 8; // LocalDate stored as epoch day (long)
+            case "long", "double", "LocalDate", "LocalDateTime" -> 8; // LocalDate/LocalDateTime stored as long
             default -> WORD_SIZE; // int, float, pointers, arrays all use 4 bytes
         };
     }
@@ -113,7 +115,7 @@ public class HostFunctionProvider {
         return type.equals("int") || type.equals("long") ||
                type.equals("float") || type.equals("double") ||
                type.equals("boolean") || type.equals("String") ||
-               type.equals("LocalDate");
+               type.equals("LocalDate") || type.equals("LocalDateTime");
     }
 
     /**
@@ -336,6 +338,13 @@ public class HostFunctionProvider {
                 instance.memory().writeI32(ptr, (int) epochDay);
                 instance.memory().writeI32(ptr + 4, (int) (epochDay >> 32));
             }
+            case "LocalDateTime" -> {
+                // Parse ISO datetime string (e.g., "2024-01-15T14:30:00") and store as epoch second (long)
+                LocalDateTime dateTime = LocalDateTime.parse(value.asText());
+                long epochSecond = dateTime.toEpochSecond(ZoneOffset.UTC);
+                instance.memory().writeI32(ptr, (int) epochSecond);
+                instance.memory().writeI32(ptr + 4, (int) (epochSecond >> 32));
+            }
             default -> {
                 // Unknown primitive type, try to write as int
                 if (value.isInt()) {
@@ -525,6 +534,12 @@ public class HostFunctionProvider {
                 long epochDay = instance.memory().readLong(ptr);
                 LocalDate date = LocalDate.ofEpochDay(epochDay);
                 out.append("\"").append(date.toString()).append("\"");
+            }
+            case "LocalDateTime" -> {
+                // Read epoch second (long) and convert back to ISO datetime string
+                long epochSecond = instance.memory().readLong(ptr);
+                LocalDateTime dateTime = LocalDateTime.ofEpochSecond(epochSecond, 0, ZoneOffset.UTC);
+                out.append("\"").append(dateTime.toString()).append("\"");
             }
             default -> out.append(instance.memory().readInt(ptr));
         }
