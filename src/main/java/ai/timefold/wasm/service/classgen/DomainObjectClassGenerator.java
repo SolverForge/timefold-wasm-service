@@ -126,11 +126,11 @@ public class DomainObjectClassGenerator {
             var fieldType = field.getValue().getType();
             nameToMemoryOffset.put(field.getKey(), totalSize);
             totalSize += switch (fieldType) {
-                case "int" -> Integer.SIZE;
-                case "long" -> Long.SIZE;
-                case "float" -> Float.SIZE;
-                case "double" -> Double.SIZE;
-                default -> Integer.SIZE;  // Pointers are integers
+                case "int" -> Integer.BYTES;
+                case "long" -> Long.BYTES;
+                case "float" -> Float.BYTES;
+                case "double" -> Double.BYTES;
+                default -> Integer.BYTES;  // Pointers are 4 bytes in WASM32
             };
         }
         return new WasmOffsets(totalSize, Collections.unmodifiableMap(nameToMemoryOffset));

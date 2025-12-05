@@ -125,7 +125,10 @@ public class SolverResource {
         var allocator = ALLOCATOR.get();
         try {
             return solutionClass.getConstructor(Allocator.class, Instance.class, String.class).newInstance(allocator, wasmInstance, planningProblem.getProblem());
-        } catch (InstantiationException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
+        } catch (InvocationTargetException e) {
+            // Extract the actual cause from the reflection wrapper
+            throw new RuntimeException("Failed to construct solution: " + e.getTargetException().getMessage(), e.getTargetException());
+        } catch (InstantiationException | IllegalAccessException | NoSuchMethodException e) {
             throw new RuntimeException(e);
         }
     }

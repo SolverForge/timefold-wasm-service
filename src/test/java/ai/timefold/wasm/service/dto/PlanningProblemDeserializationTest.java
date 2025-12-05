@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -33,26 +34,23 @@ public class PlanningProblemDeserializationTest {
 
     @Test
     public void testDeserialize() throws IOException {
-        var employee = new DomainObject(
-                Map.of(
-                        "name", new FieldDescriptor("String", null)
-                ), null);
+        var employeeFields = new LinkedHashMap<String, FieldDescriptor>();
+        employeeFields.put("name", new FieldDescriptor("String", null));
+        var employee = new DomainObject(employeeFields, null);
         employee.setName("Employee");
 
-        var shift = new DomainObject(
-                Map.of(
-                        "start", new FieldDescriptor("int", null),
-                        "end", new FieldDescriptor("int", null),
-                        "employee", new FieldDescriptor("Employee", new DomainAccessor("getEmployee", "setEmployee"), List.of(new DomainPlanningVariable(false)))
-                ), null);
+        var shiftFields = new LinkedHashMap<String, FieldDescriptor>();
+        shiftFields.put("start", new FieldDescriptor("int", null));
+        shiftFields.put("end", new FieldDescriptor("int", null));
+        shiftFields.put("employee", new FieldDescriptor("Employee", new DomainAccessor("getEmployee", "setEmployee"), List.of(new DomainPlanningVariable(false))));
+        var shift = new DomainObject(shiftFields, null);
         shift.setName("Shift");
 
-        var schedule = new DomainObject(
-                Map.of(
-                        "employees", new FieldDescriptor("Employee[]", new DomainAccessor("getEmployees", "setEmployees"), List.of(new DomainProblemFactCollectionProperty(), new DomainValueRangeProvider())),
-                        "shifts", new FieldDescriptor("Shift[]", new DomainAccessor("getShifts", "setShifts"), List.of(new DomainPlanningEntityCollectionProperty())),
-                        "score", new FieldDescriptor("SimpleScore", List.of(new DomainPlanningScore()))
-                ), new DomainObjectMapper("strToSchedule", "scheduleToStr"));
+        var scheduleFields = new LinkedHashMap<String, FieldDescriptor>();
+        scheduleFields.put("employees", new FieldDescriptor("Employee[]", new DomainAccessor("getEmployees", "setEmployees"), List.of(new DomainProblemFactCollectionProperty(), new DomainValueRangeProvider())));
+        scheduleFields.put("shifts", new FieldDescriptor("Shift[]", new DomainAccessor("getShifts", "setShifts"), List.of(new DomainPlanningEntityCollectionProperty())));
+        scheduleFields.put("score", new FieldDescriptor("SimpleScore", List.of(new DomainPlanningScore())));
+        var schedule = new DomainObject(scheduleFields, new DomainObjectMapper("strToSchedule", "scheduleToStr"));
         schedule.setName("Schedule");
 
         var constraints = Map.of(
