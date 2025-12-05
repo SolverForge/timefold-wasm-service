@@ -645,27 +645,33 @@ public class HostFunctionProvider {
      * happend(list: i32, item: i32)
      *
      * Appends an item to the end of a list.
-     * Reallocates the backing array to accommodate the new item.
+     * Uses geometric growth (doubling) for O(n) amortized performance.
      */
     private HostFunction createAppend() {
         return new HostFunction("host", "happend",
                 FunctionType.of(List.of(ValType.I32, ValType.I32), List.of()),
                 (instance, args) -> {
                     var alloc = instance.export("alloc");
-
                     var listInstance = (int) args[0];
+                    var item = (int) args[1];
 
-                    var oldSize = (int) instance.memory().readI32(listInstance);
+                    var oldSize = (int) instance.memory().readI32(listInstance + SIZE_OFFSET);
                     var newSize = oldSize + 1;
+                    var capacity = (int) instance.memory().readI32(listInstance + CAPACITY_OFFSET);
+                    var backingArray = (int) instance.memory().readI32(listInstance + BACKING_ARRAY_OFFSET);
 
-                    instance.memory().writeI32(listInstance, newSize);
+                    // Geometric growth when capacity exceeded
+                    if (newSize > capacity) {
+                        var newCapacity = Math.max(newSize, capacity * 2);
+                        var newBackingArray = (int) alloc.apply((long) WORD_SIZE * newCapacity)[0];
+                        instance.memory().copy(newBackingArray, backingArray, oldSize * WORD_SIZE);
+                        instance.memory().writeI32(listInstance + CAPACITY_OFFSET, newCapacity);
+                        instance.memory().writeI32(listInstance + BACKING_ARRAY_OFFSET, newBackingArray);
+                        backingArray = newBackingArray;
+                    }
 
-                    var oldBackingArray = (int) instance.memory().readI32(listInstance + WORD_SIZE);
-                    var newBackingArray = (int) alloc.apply((long) WORD_SIZE * newSize)[0];
-
-                    instance.memory().copy(newBackingArray, oldBackingArray, oldSize * WORD_SIZE);
-                    instance.memory().writeI32(newBackingArray + oldSize * WORD_SIZE, (int) args[1]);
-                    instance.memory().writeI32(listInstance + WORD_SIZE, newBackingArray);
+                    instance.memory().writeI32(listInstance + SIZE_OFFSET, newSize);
+                    instance.memory().writeI32(backingArray + oldSize * WORD_SIZE, item);
 
                     return new long[] {};
                 });
