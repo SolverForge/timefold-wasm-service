@@ -25,6 +25,7 @@ import ai.timefold.wasm.service.classgen.Allocator;
 import ai.timefold.wasm.service.classgen.ConstraintProviderClassGenerator;
 import ai.timefold.wasm.service.classgen.DomainObjectClassGenerator;
 import ai.timefold.wasm.service.classgen.DomainObjectClassLoader;
+import ai.timefold.wasm.service.classgen.IncrementalScoreCalculatorGenerator;
 import ai.timefold.wasm.service.classgen.WasmListAccessor;
 import ai.timefold.wasm.service.dto.PlanningProblem;
 import ai.timefold.wasm.service.dto.SolveResult;
@@ -166,7 +167,28 @@ public class SolverResource {
 
             generatedClassPath.ifPresent(s -> classLoader.dumpGeneratedClasses(Paths.get(s)));
 
-            solverConfig.withConstraintProviderClass(constraintProviderClass);
+            // Classify constraints for incremental scoring
+            var incrementalConstraints = planningProblem.getConstraintList().stream()
+                    .filter(c -> c.isIncremental())
+                    .toList();
+            var nonIncrementalConstraints = planningProblem.getConstraintList().stream()
+                    .filter(c -> !c.isIncremental())
+                    .toList();
+
+            // Use incremental scoring if we have incremental constraints
+            // For now, we use pure incremental OR pure constraint streams (not hybrid)
+            if (!incrementalConstraints.isEmpty() && nonIncrementalConstraints.isEmpty()) {
+                LOG.infof("Using incremental scoring for %d constraints", incrementalConstraints.size());
+                var incrementalCalculatorClass = new IncrementalScoreCalculatorGenerator()
+                        .defineIncrementalCalculator(planningProblem, incrementalConstraints);
+                solverConfig.getScoreDirectorFactoryConfig().setIncrementalScoreCalculatorClass(incrementalCalculatorClass);
+            } else {
+                if (!incrementalConstraints.isEmpty()) {
+                    LOG.warnf("Mixed constraints detected (%d incremental, %d non-incremental). Falling back to constraint streams.",
+                            incrementalConstraints.size(), nonIncrementalConstraints.size());
+                }
+                solverConfig.withConstraintProviderClass(constraintProviderClass);
+            }
 
             solverConfig.withTerminationConfig(planningProblem.terminationConfig());
 
