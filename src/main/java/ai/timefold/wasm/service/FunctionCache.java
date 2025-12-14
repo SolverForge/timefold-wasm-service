@@ -1,283 +1,340 @@
 package ai.timefold.wasm.service;
 
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+
+import org.jboss.logging.Logger;
 
 /**
  * Caches ALL WASM function call results to avoid redundant calls.
  *
- * Supports caching for:
- * - Boolean results (predicates/filters)
- * - Integer results (mappers returning pointers, ToInt weighers)
- * - Long results (ToLong functions)
+ * Uses VERSION-BASED LAZY INVALIDATION:
+ * - Each entity pointer has a version number
+ * - Cache entries store versions at time of caching
+ * - On lookup, version mismatch = cache miss (no iteration needed)
+ * - invalidateEntity() is O(1) - just increment version
  *
- * Uses reverse indices for O(1) invalidation when entities change.
+ * This solves the scaling problem where iterating through all keys
+ * for an entity became O(n) with large datasets.
  */
 public class FunctionCache {
+    private static final Logger LOG = Logger.getLogger(FunctionCache.class);
 
+    // Debug counters
+    private final AtomicLong hits = new AtomicLong();
+    private final AtomicLong misses = new AtomicLong();
+    private final AtomicLong invalidations = new AtomicLong();
+    private final AtomicLong staleReads = new AtomicLong();
+
+    // Version per entity pointer - O(1) invalidation
+    private final Map<Integer, Long> entityVersions = new ConcurrentHashMap<>();
+    private long globalVersion = 0;
+
+    // Cache entry includes versions of all involved entities
+    private record BoolEntry(boolean value, long v1) {}
+    private record BoolEntry2(boolean value, long v1, long v2) {}
+    private record BoolEntry3(boolean value, long v1, long v2, long v3) {}
+    private record BoolEntry4(boolean value, long v1, long v2, long v3, long v4) {}
+    private record BoolEntry5(boolean value, long v1, long v2, long v3, long v4, long v5) {}
+
+    private record IntEntry(int value, long v1) {}
+    private record IntEntry2(int value, long v1, long v2) {}
+    private record IntEntry3(int value, long v1, long v2, long v3) {}
+    private record IntEntry4(int value, long v1, long v2, long v3, long v4) {}
+    private record IntEntry5(int value, long v1, long v2, long v3, long v4, long v5) {}
+
+    private record LongEntry(long value, long v1) {}
+    private record LongEntry2(long value, long v1, long v2) {}
+    private record LongEntry3(long value, long v1, long v2, long v3) {}
+    private record LongEntry4(long value, long v1, long v2, long v3, long v4) {}
+
+    // Cache keys (without version - version checked on read)
     private record UnaryKey(String functionName, int p1) {}
     private record BinaryKey(String functionName, int p1, int p2) {}
     private record TernaryKey(String functionName, int p1, int p2, int p3) {}
     private record QuadKey(String functionName, int p1, int p2, int p3, int p4) {}
     private record PentaKey(String functionName, int p1, int p2, int p3, int p4, int p5) {}
 
-    // Boolean caches (predicates)
-    private final Map<UnaryKey, Boolean> boolUnary = new ConcurrentHashMap<>();
-    private final Map<BinaryKey, Boolean> boolBinary = new ConcurrentHashMap<>();
-    private final Map<TernaryKey, Boolean> boolTernary = new ConcurrentHashMap<>();
-    private final Map<QuadKey, Boolean> boolQuad = new ConcurrentHashMap<>();
-    private final Map<PentaKey, Boolean> boolPenta = new ConcurrentHashMap<>();
+    // Boolean caches
+    private final Map<UnaryKey, BoolEntry> boolUnary = new ConcurrentHashMap<>();
+    private final Map<BinaryKey, BoolEntry2> boolBinary = new ConcurrentHashMap<>();
+    private final Map<TernaryKey, BoolEntry3> boolTernary = new ConcurrentHashMap<>();
+    private final Map<QuadKey, BoolEntry4> boolQuad = new ConcurrentHashMap<>();
+    private final Map<PentaKey, BoolEntry5> boolPenta = new ConcurrentHashMap<>();
 
-    // Integer caches (mappers, ToInt functions)
-    private final Map<UnaryKey, Integer> intUnary = new ConcurrentHashMap<>();
-    private final Map<BinaryKey, Integer> intBinary = new ConcurrentHashMap<>();
-    private final Map<TernaryKey, Integer> intTernary = new ConcurrentHashMap<>();
-    private final Map<QuadKey, Integer> intQuad = new ConcurrentHashMap<>();
-    private final Map<PentaKey, Integer> intPenta = new ConcurrentHashMap<>();
+    // Integer caches
+    private final Map<UnaryKey, IntEntry> intUnary = new ConcurrentHashMap<>();
+    private final Map<BinaryKey, IntEntry2> intBinary = new ConcurrentHashMap<>();
+    private final Map<TernaryKey, IntEntry3> intTernary = new ConcurrentHashMap<>();
+    private final Map<QuadKey, IntEntry4> intQuad = new ConcurrentHashMap<>();
+    private final Map<PentaKey, IntEntry5> intPenta = new ConcurrentHashMap<>();
 
-    // Long caches (ToLong functions)
-    private final Map<UnaryKey, Long> longUnary = new ConcurrentHashMap<>();
-    private final Map<BinaryKey, Long> longBinary = new ConcurrentHashMap<>();
-    private final Map<TernaryKey, Long> longTernary = new ConcurrentHashMap<>();
-    private final Map<QuadKey, Long> longQuad = new ConcurrentHashMap<>();
+    // Long caches
+    private final Map<UnaryKey, LongEntry> longUnary = new ConcurrentHashMap<>();
+    private final Map<BinaryKey, LongEntry2> longBinary = new ConcurrentHashMap<>();
+    private final Map<TernaryKey, LongEntry3> longTernary = new ConcurrentHashMap<>();
+    private final Map<QuadKey, LongEntry4> longQuad = new ConcurrentHashMap<>();
 
-    // Reverse indices for O(1) invalidation
-    private final Map<Integer, Set<Object>> keysByPointer = new ConcurrentHashMap<>();
-
-    private volatile long version = 0;
+    private long getVersion(int pointer) {
+        return entityVersions.getOrDefault(pointer, 0L);
+    }
 
     // ========== Boolean (Predicate) Methods ==========
 
     public Boolean getBool1(String fn, int p1) {
-        return boolUnary.get(new UnaryKey(fn, p1));
+        var entry = boolUnary.get(new UnaryKey(fn, p1));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putBool1(String fn, int p1, boolean result) {
-        var key = new UnaryKey(fn, p1);
-        boolUnary.put(key, result);
-        addToReverseIndex(p1, key);
+        misses.incrementAndGet();
+        boolUnary.put(new UnaryKey(fn, p1), new BoolEntry(result, getVersion(p1)));
     }
 
     public Boolean getBool2(String fn, int p1, int p2) {
-        return boolBinary.get(new BinaryKey(fn, p1, p2));
+        var entry = boolBinary.get(new BinaryKey(fn, p1, p2));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        long h = hits.incrementAndGet();
+        if (h % 10000 == 0) {
+            LOG.infof("Cache stats: hits=%d, misses=%d, stale=%d, invalidations=%d",
+                    h, misses.get(), staleReads.get(), invalidations.get());
+        }
+        return entry.value;
     }
 
     public void putBool2(String fn, int p1, int p2, boolean result) {
-        var key = new BinaryKey(fn, p1, p2);
-        boolBinary.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
+        misses.incrementAndGet();
+        boolBinary.put(new BinaryKey(fn, p1, p2), new BoolEntry2(result, getVersion(p1), getVersion(p2)));
     }
 
     public Boolean getBool3(String fn, int p1, int p2, int p3) {
-        return boolTernary.get(new TernaryKey(fn, p1, p2, p3));
+        var entry = boolTernary.get(new TernaryKey(fn, p1, p2, p3));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2) || entry.v3 != getVersion(p3)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putBool3(String fn, int p1, int p2, int p3, boolean result) {
-        var key = new TernaryKey(fn, p1, p2, p3);
-        boolTernary.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
-        if (p3 != p1 && p3 != p2) addToReverseIndex(p3, key);
+        misses.incrementAndGet();
+        boolTernary.put(new TernaryKey(fn, p1, p2, p3), new BoolEntry3(result, getVersion(p1), getVersion(p2), getVersion(p3)));
     }
 
     public Boolean getBool4(String fn, int p1, int p2, int p3, int p4) {
-        return boolQuad.get(new QuadKey(fn, p1, p2, p3, p4));
+        var entry = boolQuad.get(new QuadKey(fn, p1, p2, p3, p4));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2) || entry.v3 != getVersion(p3) || entry.v4 != getVersion(p4)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putBool4(String fn, int p1, int p2, int p3, int p4, boolean result) {
-        var key = new QuadKey(fn, p1, p2, p3, p4);
-        boolQuad.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
-        if (p3 != p1 && p3 != p2) addToReverseIndex(p3, key);
-        if (p4 != p1 && p4 != p2 && p4 != p3) addToReverseIndex(p4, key);
+        misses.incrementAndGet();
+        boolQuad.put(new QuadKey(fn, p1, p2, p3, p4), new BoolEntry4(result, getVersion(p1), getVersion(p2), getVersion(p3), getVersion(p4)));
     }
 
     public Boolean getBool5(String fn, int p1, int p2, int p3, int p4, int p5) {
-        return boolPenta.get(new PentaKey(fn, p1, p2, p3, p4, p5));
+        var entry = boolPenta.get(new PentaKey(fn, p1, p2, p3, p4, p5));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2) || entry.v3 != getVersion(p3) ||
+                entry.v4 != getVersion(p4) || entry.v5 != getVersion(p5)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putBool5(String fn, int p1, int p2, int p3, int p4, int p5, boolean result) {
-        var key = new PentaKey(fn, p1, p2, p3, p4, p5);
-        boolPenta.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
-        if (p3 != p1 && p3 != p2) addToReverseIndex(p3, key);
-        if (p4 != p1 && p4 != p2 && p4 != p3) addToReverseIndex(p4, key);
-        if (p5 != p1 && p5 != p2 && p5 != p3 && p5 != p4) addToReverseIndex(p5, key);
+        misses.incrementAndGet();
+        boolPenta.put(new PentaKey(fn, p1, p2, p3, p4, p5),
+                new BoolEntry5(result, getVersion(p1), getVersion(p2), getVersion(p3), getVersion(p4), getVersion(p5)));
     }
 
     // ========== Integer (Mapper/ToInt) Methods ==========
 
     public Integer getInt1(String fn, int p1) {
-        return intUnary.get(new UnaryKey(fn, p1));
+        var entry = intUnary.get(new UnaryKey(fn, p1));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putInt1(String fn, int p1, int result) {
-        var key = new UnaryKey(fn, p1);
-        intUnary.put(key, result);
-        addToReverseIndex(p1, key);
+        misses.incrementAndGet();
+        intUnary.put(new UnaryKey(fn, p1), new IntEntry(result, getVersion(p1)));
     }
 
     public Integer getInt2(String fn, int p1, int p2) {
-        return intBinary.get(new BinaryKey(fn, p1, p2));
+        var entry = intBinary.get(new BinaryKey(fn, p1, p2));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putInt2(String fn, int p1, int p2, int result) {
-        var key = new BinaryKey(fn, p1, p2);
-        intBinary.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
+        misses.incrementAndGet();
+        intBinary.put(new BinaryKey(fn, p1, p2), new IntEntry2(result, getVersion(p1), getVersion(p2)));
     }
 
     public Integer getInt3(String fn, int p1, int p2, int p3) {
-        return intTernary.get(new TernaryKey(fn, p1, p2, p3));
+        var entry = intTernary.get(new TernaryKey(fn, p1, p2, p3));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2) || entry.v3 != getVersion(p3)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putInt3(String fn, int p1, int p2, int p3, int result) {
-        var key = new TernaryKey(fn, p1, p2, p3);
-        intTernary.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
-        if (p3 != p1 && p3 != p2) addToReverseIndex(p3, key);
+        misses.incrementAndGet();
+        intTernary.put(new TernaryKey(fn, p1, p2, p3), new IntEntry3(result, getVersion(p1), getVersion(p2), getVersion(p3)));
     }
 
     public Integer getInt4(String fn, int p1, int p2, int p3, int p4) {
-        return intQuad.get(new QuadKey(fn, p1, p2, p3, p4));
+        var entry = intQuad.get(new QuadKey(fn, p1, p2, p3, p4));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2) || entry.v3 != getVersion(p3) || entry.v4 != getVersion(p4)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putInt4(String fn, int p1, int p2, int p3, int p4, int result) {
-        var key = new QuadKey(fn, p1, p2, p3, p4);
-        intQuad.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
-        if (p3 != p1 && p3 != p2) addToReverseIndex(p3, key);
-        if (p4 != p1 && p4 != p2 && p4 != p3) addToReverseIndex(p4, key);
+        misses.incrementAndGet();
+        intQuad.put(new QuadKey(fn, p1, p2, p3, p4), new IntEntry4(result, getVersion(p1), getVersion(p2), getVersion(p3), getVersion(p4)));
     }
 
     public Integer getInt5(String fn, int p1, int p2, int p3, int p4, int p5) {
-        return intPenta.get(new PentaKey(fn, p1, p2, p3, p4, p5));
+        var entry = intPenta.get(new PentaKey(fn, p1, p2, p3, p4, p5));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2) || entry.v3 != getVersion(p3) ||
+                entry.v4 != getVersion(p4) || entry.v5 != getVersion(p5)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putInt5(String fn, int p1, int p2, int p3, int p4, int p5, int result) {
-        var key = new PentaKey(fn, p1, p2, p3, p4, p5);
-        intPenta.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
-        if (p3 != p1 && p3 != p2) addToReverseIndex(p3, key);
-        if (p4 != p1 && p4 != p2 && p4 != p3) addToReverseIndex(p4, key);
-        if (p5 != p1 && p5 != p2 && p5 != p3 && p5 != p4) addToReverseIndex(p5, key);
+        misses.incrementAndGet();
+        intPenta.put(new PentaKey(fn, p1, p2, p3, p4, p5),
+                new IntEntry5(result, getVersion(p1), getVersion(p2), getVersion(p3), getVersion(p4), getVersion(p5)));
     }
 
     // ========== Long (ToLong) Methods ==========
 
     public Long getLong1(String fn, int p1) {
-        return longUnary.get(new UnaryKey(fn, p1));
+        var entry = longUnary.get(new UnaryKey(fn, p1));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putLong1(String fn, int p1, long result) {
-        var key = new UnaryKey(fn, p1);
-        longUnary.put(key, result);
-        addToReverseIndex(p1, key);
+        misses.incrementAndGet();
+        longUnary.put(new UnaryKey(fn, p1), new LongEntry(result, getVersion(p1)));
     }
 
     public Long getLong2(String fn, int p1, int p2) {
-        return longBinary.get(new BinaryKey(fn, p1, p2));
+        var entry = longBinary.get(new BinaryKey(fn, p1, p2));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putLong2(String fn, int p1, int p2, long result) {
-        var key = new BinaryKey(fn, p1, p2);
-        longBinary.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
+        misses.incrementAndGet();
+        longBinary.put(new BinaryKey(fn, p1, p2), new LongEntry2(result, getVersion(p1), getVersion(p2)));
     }
 
     public Long getLong3(String fn, int p1, int p2, int p3) {
-        return longTernary.get(new TernaryKey(fn, p1, p2, p3));
+        var entry = longTernary.get(new TernaryKey(fn, p1, p2, p3));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2) || entry.v3 != getVersion(p3)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putLong3(String fn, int p1, int p2, int p3, long result) {
-        var key = new TernaryKey(fn, p1, p2, p3);
-        longTernary.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
-        if (p3 != p1 && p3 != p2) addToReverseIndex(p3, key);
+        misses.incrementAndGet();
+        longTernary.put(new TernaryKey(fn, p1, p2, p3), new LongEntry3(result, getVersion(p1), getVersion(p2), getVersion(p3)));
     }
 
     public Long getLong4(String fn, int p1, int p2, int p3, int p4) {
-        return longQuad.get(new QuadKey(fn, p1, p2, p3, p4));
+        var entry = longQuad.get(new QuadKey(fn, p1, p2, p3, p4));
+        if (entry == null) return null;
+        if (entry.v1 != getVersion(p1) || entry.v2 != getVersion(p2) || entry.v3 != getVersion(p3) || entry.v4 != getVersion(p4)) {
+            staleReads.incrementAndGet();
+            return null;
+        }
+        hits.incrementAndGet();
+        return entry.value;
     }
 
     public void putLong4(String fn, int p1, int p2, int p3, int p4, long result) {
-        var key = new QuadKey(fn, p1, p2, p3, p4);
-        longQuad.put(key, result);
-        addToReverseIndex(p1, key);
-        if (p2 != p1) addToReverseIndex(p2, key);
-        if (p3 != p1 && p3 != p2) addToReverseIndex(p3, key);
-        if (p4 != p1 && p4 != p2 && p4 != p3) addToReverseIndex(p4, key);
+        misses.incrementAndGet();
+        longQuad.put(new QuadKey(fn, p1, p2, p3, p4), new LongEntry4(result, getVersion(p1), getVersion(p2), getVersion(p3), getVersion(p4)));
     }
 
-    // ========== Reverse Index Management ==========
-
-    private void addToReverseIndex(int pointer, Object key) {
-        keysByPointer.computeIfAbsent(pointer, k -> ConcurrentHashMap.newKeySet()).add(key);
-    }
+    // ========== O(1) Invalidation ==========
 
     /**
      * Invalidate all cached results involving the given entity pointer.
-     * O(1) lookup via reverse index.
+     * O(1) - just bumps the version number. Stale entries detected lazily on read.
      */
     public void invalidateEntity(int pointer) {
-        var keys = keysByPointer.remove(pointer);
-        if (keys == null) return;
+        long newVersion = entityVersions.compute(pointer, (k, v) -> (v == null ? 0L : v) + 1);
+        long inv = invalidations.incrementAndGet();
+        globalVersion++;
 
-        for (var key : keys) {
-            switch (key) {
-                case UnaryKey k -> {
-                    boolUnary.remove(k);
-                    intUnary.remove(k);
-                    longUnary.remove(k);
-                }
-                case BinaryKey k -> {
-                    boolBinary.remove(k);
-                    intBinary.remove(k);
-                    longBinary.remove(k);
-                    // Remove from other pointer's reverse index
-                    int other = (k.p1 == pointer) ? k.p2 : k.p1;
-                    var otherSet = keysByPointer.get(other);
-                    if (otherSet != null) otherSet.remove(k);
-                }
-                case TernaryKey k -> {
-                    boolTernary.remove(k);
-                    intTernary.remove(k);
-                    longTernary.remove(k);
-                    removeFromOtherIndices(pointer, k, k.p1, k.p2, k.p3);
-                }
-                case QuadKey k -> {
-                    boolQuad.remove(k);
-                    intQuad.remove(k);
-                    longQuad.remove(k);
-                    removeFromOtherIndices(pointer, k, k.p1, k.p2, k.p3, k.p4);
-                }
-                case PentaKey k -> {
-                    boolPenta.remove(k);
-                    intPenta.remove(k);
-                    removeFromOtherIndices(pointer, k, k.p1, k.p2, k.p3, k.p4, k.p5);
-                }
-                default -> {}
-            }
-        }
-        version++;
-    }
-
-    private void removeFromOtherIndices(int pointer, Object key, int... pointers) {
-        for (int p : pointers) {
-            if (p != pointer) {
-                var set = keysByPointer.get(p);
-                if (set != null) set.remove(key);
-            }
+        if (inv % 1000 == 0) {
+            int totalEntries = boolUnary.size() + boolBinary.size() + boolTernary.size() + boolQuad.size() + boolPenta.size() +
+                    intUnary.size() + intBinary.size() + intTernary.size() + intQuad.size() + intPenta.size() +
+                    longUnary.size() + longBinary.size() + longTernary.size() + longQuad.size();
+            LOG.infof("Inv#%d ptr=%x newVer=%d entities=%d entries=%d",
+                    inv, pointer, newVersion, entityVersions.size(), totalEntries);
         }
     }
 
@@ -296,18 +353,19 @@ public class FunctionCache {
         longBinary.clear();
         longTernary.clear();
         longQuad.clear();
-        keysByPointer.clear();
-        version++;
+        entityVersions.clear();
+        globalVersion++;
     }
 
     public long getVersion() {
-        return version;
+        return globalVersion;
     }
 
     public String getStats() {
         int boolCount = boolUnary.size() + boolBinary.size() + boolTernary.size() + boolQuad.size() + boolPenta.size();
         int intCount = intUnary.size() + intBinary.size() + intTernary.size() + intQuad.size() + intPenta.size();
         int longCount = longUnary.size() + longBinary.size() + longTernary.size() + longQuad.size();
-        return String.format("FunctionCache[bool=%d, int=%d, long=%d, version=%d]", boolCount, intCount, longCount, version);
+        return String.format("FunctionCache[bool=%d, int=%d, long=%d, entities=%d, hits=%d, misses=%d, stale=%d]",
+                boolCount, intCount, longCount, entityVersions.size(), hits.get(), misses.get(), staleReads.get());
     }
 }
