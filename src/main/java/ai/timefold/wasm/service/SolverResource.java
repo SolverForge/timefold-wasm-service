@@ -187,11 +187,8 @@ public class SolverResource {
     @POST
     @Path("solve")
     public SolveResult solve(PlanningProblem planningProblem) {
-        LOG.info("=== SOLVE REQUEST RECEIVED ===");
         return usingGeneratedSolverAndPlanningProblem(planningProblem, (solverInput, solverFactory) -> {
-            LOG.info("Building solver...");
             var solver = solverFactory.buildSolver();
-            LOG.info("Solver built, starting solve...");
 
             // Copy the solution into a map; we don't know enough from the WASM
             // to create an accurate planning clone that cannot be corrupted by
