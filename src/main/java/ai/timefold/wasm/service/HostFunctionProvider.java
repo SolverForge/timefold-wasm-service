@@ -592,6 +592,58 @@ public class HostFunctionProvider {
     }
 
     /**
+     * Serialize a nested collection field (array inside an entity) to JSON.
+     * Handles String[], LocalDate[], and object arrays.
+     */
+    private void serializeNestedCollection(Instance instance, ExportFunction listSize,
+            ExportFunction getItem, int ptr, FieldDescriptor field, StringBuilder out) {
+
+        String elementType = field.getType().replace("[]", "");
+        int listPtr = instance.memory().readInt(ptr);
+
+        if (listPtr == 0) {
+            out.append("[]");
+            return;
+        }
+
+        int length = (int) listSize.apply((long) listPtr)[0];
+
+        out.append("[");
+        for (int i = 0; i < length; i++) {
+            if (i > 0) out.append(", ");
+            int elementPtr = (int) getItem.apply((long) listPtr, (long) i)[0];
+
+            if (elementType.equals("String")) {
+                if (elementPtr == 0) {
+                    out.append("null");
+                } else {
+                    String str = instance.memory().readCString(elementPtr);
+                    out.append("\"").append(escapeJson(str)).append("\"");
+                }
+            } else if (elementType.equals("LocalDate")) {
+                // elementPtr is the epoch day value directly (wrapped as int)
+                long epochDay = elementPtr;
+                LocalDate date = LocalDate.ofEpochDay(epochDay);
+                out.append(epochDay);  // Output as number for date arrays
+            } else if (elementType.equals("LocalDateTime")) {
+                // elementPtr is the epoch second value directly
+                out.append(elementPtr);
+            } else {
+                // Object type - serialize recursively
+                DomainObject elementDef = domainObjectMap.get(elementType);
+                if (elementDef != null) {
+                    out.append("{");
+                    serializeEntityObject(instance, listSize, getItem, elementPtr, elementDef, out);
+                    out.append("}");
+                } else {
+                    out.append("null");
+                }
+            }
+        }
+        out.append("]");
+    }
+
+    /**
      * Serialize an entity object (not the solution) to JSON.
      */
     private void serializeEntityObject(Instance instance, ExportFunction listSize,
@@ -614,8 +666,8 @@ public class HostFunctionProvider {
             out.append("\"").append(fieldName).append("\": ");
 
             if (field.getType().endsWith("[]")) {
-                // Nested arrays in entities - serialize as empty for now
-                out.append("[]");
+                // Serialize nested arrays in entities
+                serializeNestedCollection(instance, listSize, getItem, ptr + offset, field, out);
             } else if (isPrimitiveType(field.getType())) {
                 serializePrimitive(instance, ptr + offset, field.getType(), out);
             } else {
